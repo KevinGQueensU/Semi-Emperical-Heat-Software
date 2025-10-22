@@ -3,6 +3,7 @@ import scipy.constants
 import numpy as np
 import scipy.integrate
 import scipy.interpolate as interpolate
+
 # Sort 2 arrays based on input array x values
 def _sorted_unique_xy(x, y, agg="last"):
     x = np.asarray(x, float)
@@ -59,8 +60,8 @@ class atom:
         self.f = f # 0 < f < 1
         self.Es, self.sig_bs = read_file(sig_file)
 
-        self.Es = np.r_[0.0, self.Es] * E_conv  # -> eV
-        self.sig_bs = np.r_[0.0, self.sig_bs] * sig_conv # -> m^2
+        self.Es = np.r_[0, self.Es] * E_conv  # -> eV
+        self.sig_bs =  np.r_[0, self.sig_bs] * sig_conv # -> m^2
         self.Es, self.sig_bs = _sorted_unique_xy(self.Es, self.sig_bs)
 
         self.sig_interp = interpolate.PchipInterpolator(self.Es, self.sig_bs, extrapolate=True)
@@ -79,7 +80,7 @@ class atom:
 
     # Input an energy, return the corresponding (p,x) extrapolated from the file
     def get_sig(self, E):
-        return self.sig_interp(E) # m^2
+        return max(self.sig_interp(E), 0.0) # m^2
 
 
 ## MEDIUM CLASS used in heat equation for calculating energy gradient
@@ -90,7 +91,7 @@ class Medium:
     # L (length of medium, m), A (cross sectional area along x, m^2),
     # P (perimeter of cross sectional area along x, m),
     # dEdx_filename (filename that has stopping power table [E, Se]
-    def __init__(self, n, rho, atoms, L, A, P, dEdX_filename, x0 = 0, Se_conv = 9.746e-21, E_conv = 1e6):
+    def __init__(self, n, rho, atoms, L, A, P, dEdX_filename, beam, x0 = 0, Se_conv = 9.746268365e-18, E_conv = 1e6):
         if isinstance(atoms, (list, tuple, np.ndarray)):
             self.atoms = np.array(list(atoms), dtype=object).reshape(-1)
         else:
@@ -103,14 +104,15 @@ class Medium:
         self.L = L # length m
         self.x0 = x0 # start of medium, m
         self.r = 2*A/P # radius m
+        self.beam = beam
         self.filename = dEdX_filename
         self.Es, self.Se = read_file(dEdX_filename)
-        self.Es = np.r_[0.0, self.Es] * E_conv  # -> eV
-        self.Se = np.r_[0.0, self.Se] * Se_conv # eV·m^2/atom
+        self.Es = np.r_[0, self.Es] * E_conv  # -> eV
+        self.Se = np.r_[0, self.Se] * Se_conv # eV·m^2/atom
         self.Es, self.Se = _sorted_unique_xy(self.Es, self.Se) # sort array for interp
         self.LBD = 0 # fitting parameter, initially set to 0
         self._compute_number_densities()
-        self.dEdx_interp = interpolate.PchipInterpolator(self.Es, self.Se, extrapolate=True)
+        self.dEdx_interp = interpolate.PchipInterpolator(self.Es, self.Se, extrapolate = True)
 
     # PRIVATE: Compute Nd based on atom atomic fraction and mass, store as nict
     def _compute_number_densities(self):
@@ -122,6 +124,7 @@ class Medium:
 
         # Store number density for each atom in a dict.
         self.Nd = {a: a.f * self.N_tot for a in self.atoms} # atoms/m^3 for each atom type
+        print(self.Nd)
 
     # Multiply the stopping power stored for dEdx by some factor
     def conv_Se(self, factor):
@@ -152,49 +155,76 @@ class Medium:
 
     # Return the stopping power interpolated from the table in eV/m
     def get_Se_ev_m(self, E):
-        return self.dEdx_interp(E) * self.N_tot # eV/m
-
+        return self.dEdx_interp(E) * self.N_tot
     # Compute the intensity gradient dI/dx
-    def get_dIdx(self, E, I):
+    def get_dIdx(self, E, I, test = False):
+        if test:
+            return self.compute_sig(E)
         return - self.compute_sig(E) * I # 1/(m*s)
 
+    def dEdx_Bethe(self, E, beam):
+        E_rest = beam.A * 931.494 * 1e6  # rest energy of a proton
+        gamma = 1 + E/E_rest
+        beta_r = np.sqrt(1-1/gamma**2)
+
+        k_0 = 1/(4*np.pi*scipy.constants.epsilon_0)
+        prefct = (4*np.pi*k_0**2*beam.Z**2 * scipy.constants.e**4 * self.n)/(E_rest*beta_r**2)
+        ln_fct = 2*E_rest*beta_r**2/(beam.Vm*(1-beta_r**2)) - beta_r**2
+        return prefct * (np.log(ln_fct) - beta_r**2)
+
     # PRIVATE: Compute forward and lateral scattering from secondary cascades
-    def _Ed_fwd(self, x, dx, E, I):
+    def _Ed_fwd(self, cj, cell_width, x_fwd, E, I):
+        if x_fwd > self.L:
+            x_fwd = self.L
+        pre_fct = 1-np.exp(-self.r/self.LBD) # lateral pre-factor
+        dIdx = self.get_dIdx(E, I) # get intensity gradient
+
+        def f(x, dx, xfwd):
+            fct1 = np.exp(-(xfwd-x)/self.LBD) - np.exp(-(xfwd-x+dx)/self.LBD)
+            return self.RFWD * E * -dIdx * fct1
+
+        return pre_fct * f(cj, cell_width, x_fwd)
+
+    # PRIVATE: Compute backward and lateral scattering from secondary cascades
+    def _Ed_bwd(self, cj, cell_width, x_bwd, E, I):
+        if(x_bwd < self.x0):
+            x_bwd = self.x0
+        pre_fct = 1-np.exp(-self.r/self.LBD) # lateral pre-factor
+        dIdx = self.get_dIdx(E, I) # get intensity gradient
+
+        def f(x, dx, xbwd):
+            fct1 = np.exp(-(x-xbwd)/self.LBD) - np.exp(-(x-xbwd + dx)/self.LBD)
+            return (1-self.RFWD) * E * -dIdx * fct1
+
+        return pre_fct * f(cj, cell_width, x_bwd)
+
+    def _Ed_fwd_test(self, cj, x_fwd, dx, E, I):
         pre_fct = 1-np.exp(-self.r/self.LBD) # lateral pre-factor
         dIdx = self.get_dIdx(E, I) # get intensity gradient
 
         def f(xfwd):
-            fct1 = np.exp(-(xfwd-x)/self.LBD) - np.exp(-(xfwd-x + dx)/self.LBD)
-            return self.RFWD * E * -dIdx * fct1
-        I = scipy.integrate.quad(f, x, self.L)[0] # integrate from x to the medium length
+            fct1 = np.exp(-(xfwd-cj)/self.LBD)
+            return self.RFWD/self.LBD  * E * -dIdx * fct1
 
-        return I * pre_fct
+        return pre_fct * scipy.integrate.quad(f, cj, x_fwd + dx)[0]
 
-    # PRIVATE: Compute backward and lateral scattering from secondary cascades
-    def _Ed_bwd(self, x, dx, E, I):
+    def _Ed_bwd_test(self, cj, x_bwd, dx, E, I):
         pre_fct = 1-np.exp(-self.r/self.LBD) # lateral pre-factor
         dIdx = self.get_dIdx(E, I) # get intensity gradient
 
         def f(xbwd):
-            fct1 = np.exp(-(x-xbwd)/self.LBD) - np.exp(-(x-xbwd + dx)/self.LBD)
-            return (1-self.RFWD) * E * -dIdx * fct1
-        I = scipy.integrate.quad(f, self.x0, x)[0] # integrate from x0, medium start position, to x
+            fct1 = np.exp(-(cj-xbwd)/self.LBD)
+            return (1-self.RFWD)/self.LBD * E * -dIdx * fct1
 
-        return I * pre_fct
+        return pre_fct * scipy.integrate.quad(f, x_bwd - dx, cj)[0]
 
     # Compute the energy gradient at a specified x (m), given a step size dx (m),
     # instantaneous particle energy E (eV), and intensity I (1/s)
-    def get_Egrad(self, x, dx, E, I, conv_MeV=1e-6):
-        if self.LBD == 0:
-            self.LBD = 11.4 * ((E * conv_MeV) ** (1 / 3)) # paper fit for optimal lambda, only stored once
+    def set_LBD(self, E, conv_MeV=1e-6):
+        self.LBD = 11.4 * ((E * conv_MeV) ** (1 / 3)) * 1e-3 # paper fit for optimal lambda, only stored once
 
-        # electronic and nuclear stopping power term I * Se(E)
-        dEddx_tot = I * self.get_Se_ev_m(E)  # eV/(m·s)
-
-        # nuclear redistributed stopping power (secondary scatters) E * (-dI/dx)
-        dEddx_nucl = self._Ed_fwd(x, dx, E, I) + self._Ed_bwd(x, dx, E, I)
-
-        return dEddx_tot + dEddx_nucl  # eV/(m·s)
+    def get_dEdx(self, E):
+        return -self.get_Se_ev_m(E)  # eV/(m·s)
 
 
 

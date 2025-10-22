@@ -7,7 +7,7 @@ class Beam:
 
     #CONSTRUCTOR: Takes initial instantaneous energy E_0 [eV], intial intensity I_0 [1/s], beam particle atomic number Z.
     # Optional parameters for setting Gaussian and Annular Gaussian beam parameters
-    def __init__(self, E_0, I_0, Z, v=0, f_gauss = 1, sig_ga_y0=0, sig_ga_z0=0, sig_an_y0=0, sig_an_z0=0, mu_y0=0, mu_z0=0, type ='Gaussian'):
+    def __init__(self, E_0, I_0, Z, A = 1, f_gauss = 1, sig_ga_y0=0, sig_ga_z0=0, sig_an_y0=0, sig_an_z0=0, mu_y0=0, mu_z0=0, type ='Gaussian'):
         if type not in self.TYPES:
             raise ValueError(f"Invalid Type: Must be Gaussian or Annular or Both")
         self.type = type
@@ -15,8 +15,8 @@ class Beam:
         self.I_0 = I_0 # s^-1
         self.P_0 = E_0 * I_0 # initial power, eV/s
 
-        self.v = v
-        self.beta = self.v/sp.constants.c
+        E_rest = A*931.494*1e6 # rest energy of a proton
+        self.A = A
         self.Z = Z
         self.f_gauss = f_gauss # f_gauss + f_ann SHOULD ALWAYS ADD UP TO 1
         self.f_ann = 1 - f_gauss
