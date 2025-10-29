@@ -1,10 +1,11 @@
 import scipy as sp
 from Beam import Beam
 from Medium import atom, Medium
+import simulation as sim
 import numpy as np
 import matplotlib.pyplot as plt
 
-if True:
+if False:
     I_0 = 6.24 * 1e15 # [s^-1]
     E_0 = 500e6 # [MeV]
     r = 1e-3 # m
@@ -155,3 +156,40 @@ if True:
     plt.ylabel(r'I [/s]')
     plt.plot(xk * 1e3, I_beam[1:] * 1e-6)
     plt.show()
+
+
+if True:
+    Lx = 60e-3
+    dx = 1e-3
+    Ly = 40e-3
+    dy = 0.1e-3
+    # Parameters for the beam and values
+    I_0 = 6.24 * 1e15 # [s^-1]
+    E_0 = 200e6 # [MeV]
+    r = 1e-3 # m
+    sig_ga_y0 = r
+    sig_ga_z0 = r
+    Z = 1
+    x0 = 0
+    beam = Beam(E_0, I_0, Z, sig_ga_y0 = sig_ga_y0, sig_ga_z0 = sig_ga_z0)
+
+    # Parameters for the medium and values
+    Z_Ni = 28
+    A_Ni = 58.693  # g/mol
+    Ni = atom('Ni', Z_Ni, A_Ni, 1, "Ni//Cross_Sections//Ni_px.txt")
+    rho = 8.908  # g/cm^3
+    n = 2.56e30 # 1/m^3
+    H = 140e-3
+    W = 10e-3  # 10 mm square slab
+    A_xsec = W * H
+    P_perim = 2 * (W + H)
+    medium = Medium(n, rho, Ni, Lx, A_xsec, P_perim, "Ni//Stopping_Power//H.txt", beam,
+                    x0 = x0)
+
+    # Parameters for
+    rho *= 1e3 # kg/m^3
+    C = 445 # J/(kg*K)
+    k = 91 # W/m*K
+
+    ts, Ts = sim.heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, 10,
+                        dx = dx, dy = dy, view = True, dt_fact = 0.1)
