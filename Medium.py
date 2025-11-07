@@ -48,38 +48,114 @@ def read_file(filename):
         col2 = np.append(col2, float(data_elements[1]))
 
     return col1, col2
+import re
+import numpy as np
+
+# map energy units -> MeV scale factor
+E_TO_EV = {"ev": 1,
+              "kev": 1e3,
+              "mev": 1e6,
+              "gev": 1e9}
+def read_SRIM_ev_atom_m2(filename):
+    with open(filename, "r", encoding="utf-8", errors="ignore") as f:
+        txt = f.read()
+
+    # --- find multiplier for eV / (1E15 atoms/cm2) in the footer ---
+    # normalize whitespace in labels so minor spacing differences don't matter
+    target_label = "eV / (1E15 atoms/cm2)"
+    mul_block_start = re.search(r"Multiply Stopping by", txt, flags=re.IGNORECASE)
+    if not mul_block_start:
+        raise ValueError("Multiplier table not found in SRIM file.")
+    factor = None
+    for line in txt[mul_block_start.end():].splitlines():
+        s = line.strip()
+        if not s or s.startswith("=") or s.startswith("(C)"):
+            # end of table region
+            if factor is not None:
+                break
+            continue
+        m = re.match(r"^\s*([0-9.]+(?:[Ee][+-]?\d+)?)\s+(.+?)\s*$", line)
+        if not m:
+            continue
+        val = float(m.group(1))
+        label = " ".join(m.group(2).split())
+        if label == target_label:
+            factor = val
+            break
+    if factor is None:
+        raise ValueError(f"Unit '{target_label}' not found in multiplier table.")
+
+    factor *= 1e-4 * 1e-15 # convert to m^2
+
+    row_re = re.compile(
+        r"""^\s*
+            (?P<E>\d+(?:\.\d+)?)\s*
+            (?P<Unit>eV|keV|MeV|GeV)
+            \s+
+            (?P<Elec>[+-]?\d+(?:\.\d+)?[Ee][+-]?\d+)
+            \s+
+            (?P<Nucl>[+-]?\d+(?:\.\d+)?[Ee][+-]?\d+)
+        """,
+        re.IGNORECASE | re.VERBOSE
+    )
+
+    E_list, elec_list, nucl_list = [], [], []
+    for line in txt.splitlines():
+        m = row_re.match(line)
+        if not m:
+            continue
+        E = float(m.group("E"))
+        unit = m.group("Unit").lower()
+        elec = float(m.group("Elec"))
+        nucl = float(m.group("Nucl"))
+
+        E_list.append(E * E_TO_EV[unit])             # -> MeV
+        elec_list.append(elec * factor)                    # -> eV/(1e15 atoms/cm2)
+        nucl_list.append(nucl * factor)                    # -> eV/(1e15 atoms/cm2)
+
+    if not E_list:
+        raise ValueError("No SRIM numeric rows found in file.")
+
+     return np.array(E_list), np.array(elec_list), np.array(nucl_list)
 
 # ATOM CLASS: Used to describe atoms that comprise a medium of choice
 class atom:
     # Constructor that takes in name, atomic number Z, atomic mass A (g/mol), atomic fraction f,
     # filepath with cross sections (p,x)
-    def __init__(self, name, Z, A, f, sig_file, E_conv = 1, sig_conv = 1e-28):
+    def __init__(self, name, Z, A, f, sig_file = None, E_conv = 1, sig_conv = 1e-28):
         self.name = name
         self.Z = Z # > 0
         self.A = A # g/mol
         self.f = f # 0 < f < 1
-        self.Es, self.sig_bs = read_file(sig_file)
-
-        self.Es = np.r_[0, self.Es] * E_conv  # -> eV
-        self.sig_bs =  np.r_[0, self.sig_bs] * sig_conv # -> m^2
-        self.Es, self.sig_bs = _sorted_unique_xy(self.Es, self.sig_bs)
-
-        self.sig_interp = interpolate.PchipInterpolator(self.Es, self.sig_bs, extrapolate=True)
+        self.sig_file = sig_file
+        if(sig_file is not None):
+            self.Es, self.sig_bs = read_file(sig_file)
+            self.Es = np.r_[0, self.Es] * E_conv  # -> eV
+            self.sig_bs =  np.r_[0, self.sig_bs] * sig_conv # -> m^2
+            self.Es, self.sig_bs = _sorted_unique_xy(self.Es, self.sig_bs)
+            self.sig_interp = interpolate.PchipInterpolator(self.Es, self.sig_bs, extrapolate=True)
 
     # Multiply cross sections by some factor
     def conv_sig(self, factor):
+        if(self.sig_file is None):
+            raise ValueError("Cross section file is not defined")
         self.sig_bs *= factor
 
     #Multiply energies by some factor
     def conv_E(self, factor):
+        if(self.sig_file is None):
+            raise ValueError("Cross section file is not defined")
         self.Es *= factor
 
     # Read in a new cross section file
     def set_sig(self, file_name):
         self.Es, self.sig_bs = read_file(file_name)
+        self.sig_file = file_name
 
     # Input an energy, return the corresponding (p,x) extrapolated from the file
     def get_sig(self, E):
+        if(self.sig_file is None):
+            return 0
         return max(self.sig_interp(E), 0.0) # m^2
 
 
@@ -91,7 +167,7 @@ class Medium:
     # L (length of medium, m), A (cross sectional area along x, m^2),
     # P (perimeter of cross sectional area along x, m),
     # dEdx_filename (filename that has stopping power table [E, Se]
-    def __init__(self, n, rho, atoms, L, A, P, dEdX_filename, beam, x0 = 0, Se_conv = 9.746268365e-18, E_conv = 1e6):
+    def __init__(self, n, rho, atoms, L, A, P, dEdX_filename, beam, x0 = 0):
         if isinstance(atoms, (list, tuple, np.ndarray)):
             self.atoms = np.array(list(atoms), dtype=object).reshape(-1)
         else:
@@ -106,9 +182,10 @@ class Medium:
         self.r = 2*A/P # radius m
         self.beam = beam
         self.filename = dEdX_filename
-        self.Es, self.Se = read_file(dEdX_filename)
-        self.Es = np.r_[0, self.Es] * E_conv  # -> eV
-        self.Se = np.r_[0, self.Se] * Se_conv # eV·m^2/atom
+        self.Es, self.Se_elec, self.Se_nucl = read_SRIM_ev_atom_m2(dEdX_filename)
+        self.Se = self.Se_elec + self.Se_nucl
+        self.Es = np.r_[0, self.Es]
+        self.Se = np.r_[0, self.Se]
         self.Es, self.Se = _sorted_unique_xy(self.Es, self.Se) # sort array for interp
         self.LBD = 0 # fitting parameter, initially set to 0
         self._compute_number_densities()

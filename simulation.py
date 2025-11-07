@@ -4,9 +4,9 @@ from Medium import atom, Medium
 from Beam import Beam
 import bisect
 import numpy as np
+import scipy.constants as const
 from fipy import Variable, FaceVariable, CellVariable, Grid2D, TransientTerm, DiffusionTerm, DummySolver, Viewer, \
     ExplicitDiffusionTerm
-from fipy.tools import numerix
 
 def region_index(x0, x):
     # x0 must be sorted (strictly increasing recommended)
@@ -51,9 +51,12 @@ def compute_SE(x, y, z, alpha, beta, x_ref, beam: Beam,  mediums, dx = 0.1):
     return SE
 
 def heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k,
-                    t, T0 = 298, dx = 1e-3, dy = 1e-3, dt_fact = 0.1,
-                    x_shift = None, y_shift = None,
-                    SE = None, alpha = 0, beta = 0, view=False):
+                    t, T0 = 298.0, T0_faces = 0, T0_top = None, T0_bot = None,
+                    T0_left = None, T0_right = None, T_amb = 0, rad_bnd = False,
+                    eps = 1, dx = 1e-3, dy = 1e-3, dt_fact = 0.1,
+                    x_shift = None, y_shift = None, SE = None,
+                    alpha = 0, beta = 0, view=False, view_freq = 0):
+
     if x_shift is None:
         x_shift = 0
     if y_shift is None:
@@ -109,8 +112,66 @@ def heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k,
 
     SE = CellVariable(mesh=mesh, value=SE, name=r"$S_{E}$")
     T = CellVariable(mesh=mesh, value=T0, hasOld=True, name="T [K]")
-    T.constrain(T0, mesh.exteriorFaces)
-    eq = TransientTerm(coeff = rho * C, var = T) == ExplicitDiffusionTerm(coeff=k, var=T) + SE
+
+    if T0_top is None:
+        T0_top = T0_faces
+    if T0_bot is None:
+        T0_bot = T0_faces
+    if T0_left is None:
+        T0_left = T0_faces
+    if T0_right is None:
+        T0_right = T0_faces
+
+    K = CellVariable(mesh = mesh, value = k, rank = 0)
+    rho_C = CellVariable(mesh = mesh, value = rho * C, rank = 0)
+
+    if(rad_bnd):
+        m_top = mesh.facesTop
+        m_bot = mesh.facesBottom
+        m_left = mesh.facesLeft
+        m_right = mesh.facesRight
+        top_cells = mesh.faceCellIDs[0][m_top]
+        bottom_cells = mesh.faceCellIDs[0][m_bot]
+        left_cells = mesh.faceCellIDs[0][m_left]
+        right_cells = mesh.faceCellIDs[0][m_right]
+
+        top_mask = np.zeros(mesh.numberOfCells, dtype=bool)
+        bottom_mask = np.zeros(mesh.numberOfCells, dtype=bool)
+        left_mask = np.zeros(mesh.numberOfCells, dtype=bool)
+        right_mask = np.zeros(mesh.numberOfCells, dtype=bool)
+
+        top_mask[top_cells] = True
+        bottom_mask[bottom_cells] = True
+        left_mask[left_cells] = True
+        right_mask[right_cells] = True
+
+        T.setValue(T0_top, where=top_mask)
+        T.setValue(T0_bot, where=bottom_mask)
+        T.setValue(T0_left, where=left_mask)
+        T.setValue(T0_right, where=right_mask)
+
+
+        sig = const.Stefan_Boltzmann
+        T_face = T.faceValue.value
+        q_all = np.zeros_like(T_face)
+
+        q_all[m_top] = eps * sig * (T_face[m_top] - T_amb) ** 4
+        q_all[m_bot] = eps * sig * (T_face[m_bot]- T_amb) ** 4
+        q_all[m_left] = eps * sig * (T_face[m_left]- T_amb) ** 4
+        q_all[m_right] = eps * sig * (T_face[m_right]- T_amb) ** 4
+
+        flux_faces = FaceVariable(mesh=mesh, value=0.0)
+        flux_faces.setValue(-q_all)
+        eq = TransientTerm(coeff=rho_C, var=T) == ExplicitDiffusionTerm(coeff=K, var=T) + SE + \
+             (mesh.exteriorFaces * flux_faces).divergence
+        K.constrain(0, mesh.exteriorFaces)
+    else:
+        eq = TransientTerm(coeff = rho * C, var = T) == ExplicitDiffusionTerm(coeff=k, var=T) + SE
+        T.constrain(T0_top, mesh.facesTop)
+        T.constrain(T0_bot, mesh.facesBottom)
+        T.constrain(T0_left, mesh.facesLeft)
+        T.constrain(T0_right, mesh.facesRight)
+
     if view:
         viewer = Viewer(vars=T)
 
@@ -122,110 +183,25 @@ def heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k,
 
     ts = np.array([])
     Ts = np.array([])
-
+    t_next = 0
     while t_start < t_end:
         ts = np.append(ts, t_start)
         Ts = np.append(Ts, T)
         T.updateOld()
+        if(rad_bnd):
+            T_face = T.faceValue.value  # shape = (nFaces,)
+            q_all[m_top] = eps * sig * (T_face[m_top] - T_amb) ** 4
+            q_all[m_bot] = eps * sig * (T_face[m_bot] - T_amb) ** 4
+            q_all[m_left] = eps * sig * (T_face[m_left] - T_amb) ** 4
+            q_all[m_right] = eps * sig * (T_face[m_right] - T_amb) ** 4
+            flux_faces.setValue(-q_all)
+            eq = TransientTerm(coeff=rho_C, var=T) == ExplicitDiffusionTerm(coeff=K, var=T) + SE +\
+            (mesh.exteriorFaces * flux_faces).divergence
         eq.solve(var=T, dt=dt)
         t_start += dt
-        print(t_start)
         if view:
-            viewer.plot()
+            if t_start > t_next:
+                print(f"t={t_start + dt:.3f}s  mean face temp ={T_face.mean():.4f} K, max={T_face.max():.4f} K)")
+                t_next += view_freq
+                viewer.plot()
     return ts, Ts
-
-def heateq_solid_2d_temp(rho_Ni, C, k):
-    Lx = 350e-3
-
-    # Parameters for the beam and values
-    I_0 = 6.24 * 1e15 # [s^-1]
-    E_0 = 200e6 # [MeV]
-    r = 1e-3 # m
-    sig_ga_y0 = r
-    sig_ga_z0 = r
-    Z = 1
-    x0 = 0
-    beam = Beam(E_0, I_0, Z, sig_ga_y0 = sig_ga_y0, sig_ga_z0 = sig_ga_z0)
-    Z_Ni = 28
-    A_Ni = 58.693  # g/mol
-    Ni = atom('Ni', Z_Ni, A_Ni, 1, "Ni//Cross_Sections//Ni_px.txt")
-    rho = 8.908  # g/cm^3
-    n = 2.56e30 # 1/m^3
-    H = 140e-3
-    W = 10e-3  # 10 mm square slab
-    A_xsec = W * H
-    P_perim = 2 * (W + H)
-    medium = Medium(n, rho, Ni, Lx, A_xsec, P_perim, "Ni//Stopping_Power//H.txt", beam,
-                    x0 = x0)
-    Lx = 140e-3
-    dx = 1e-3
-    nx = int(np.ceil(Lx/dx))
-
-    Ly = 140e-3
-    dy = 1e-3
-    ny = int(np.ceil(Ly/dy))
-
-    mesh = Grid2D(nx=nx, dx=dx, ny=ny, dy=dy)
-    mesh = mesh + ((0,), (-Ly/2,))
-    cx = mesh.cellCenters[0].value
-    cy = mesh.cellCenters[1].value
-    CX = cx.reshape((nx, ny), order='F')  # shape (nx, ny)
-    CY = cy.reshape((nx, ny), order='F')
-    alpha = beta = 0.0
-    z = 0
-    cx_test = cx
-    cx = CX[:, 0]
-    E_beam = np.empty_like(cx)
-    E_beam[0] = E_0*I_0  # eV/s
-    dIdx = np.empty_like(cx)
-    E_inst = np.empty_like(cx)
-    I_beam = np.empty_like(cx)
-    dEb_dx = np.zeros_like(cx)  # eV/(m·s)
-    dEdx = np.zeros_like(cx)
-    dEdx_beam = np.zeros_like(cx)
-     # Free energy flux eV/(m^2·s)
-
-    E_inst[0] = E_0 # eV
-    I_beam[0] = I_0  # 1/s
-    dIdx[0] = medium.get_dIdx(E_inst[0], I_beam[0])
-
-    for k, j in enumerate(cx):
-        if(k == nx - 1):
-            break
-        # Get energy gradient
-        dEdx[k] = medium.get_dEdx(E_inst[k])
-        dEdx_beam[k] = dEdx[k] * I_beam[k] + E_inst[k] * dIdx[k]
-        I_beam[k + 1] = I_beam[k] + dIdx[k] * dx
-        E_beam[k + 1] = max(E_beam[k] + dEdx_beam[k] * dx, 0)
-        E_inst[k + 1] = E_beam[k+1]/I_beam[k+1]
-        dIdx[k+1] = medium.get_dIdx(E_inst[k+1], I_beam[k+1])  # (1/s)/m
-
-    for k in range(nx):
-        dEb_dx[k] -= I_beam[k] * dEdx[k]
-    print("initial finished")
-    eV_to_J = 1.602176634e-19 # shape (nx, ny)
-    phi_free = np.array(beam.PD(CX, CY, z, alpha, beta))
-    dEb_dx *= eV_to_J
-    SE_W_per_m2 = dEb_dx[:, None] * phi_free * 1/E_beam[0]
-    SE_W_per_m2 = SE_W_per_m2.reshape(-1, order='F')
-    SE = CellVariable(mesh=mesh, value=    SE_W_per_m2, name=r"$S_{E}$")
-
-    # Initial conditions
-    T0 = 298 # K
-    T = CellVariable(mesh=mesh, value=T0, hasOld=True, name="T [K]")
-    T.constrain(T0, mesh.exteriorFaces) # constrain the surfaces of box
-    eq = TransientTerm(coeff = rho_Ni * C, var = T) == ExplicitDiffusionTerm(coeff=k, var=T) + SE * Lx * Ly
-    viewer = Viewer(vars=T)
-
-    alpha = k / (rho_Ni * C)
-    dt = 0.1 * min(dx, dy) ** 2 / alpha
-    t_end = 300  # seconds
-    t = 0.0
-
-    while t < t_end:
-        T.updateOld()
-        eq.solve(var=T, dt=dt)
-        t += dt
-        print(t)
-        viewer.plot()
-    viewer.plot()

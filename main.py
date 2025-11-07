@@ -5,9 +5,10 @@ import simulation as sim
 import numpy as np
 import matplotlib.pyplot as plt
 
+##NICKEL
 if False:
     I_0 = 6.24 * 1e15 # [s^-1]
-    E_0 = 500e6 # [MeV]
+    E_0 = 200e6 # [MeV]
     r = 1e-3 # m
     sig_ga_y0 = r
     sig_ga_z0 = r
@@ -24,7 +25,7 @@ if False:
     W = H = 10e-3  # 10 mm square slab
     A_xsec = W * H
     P_perim = 2 * (W + H)
-    L = 350e-3
+    L = 60e-3
     medium = Medium(n, rho, Ni, L, A_xsec, P_perim, "Ni//Stopping_Power//H.txt", beam,
                     x0 = x0)
 
@@ -34,18 +35,19 @@ if False:
     alpha = beta = 0.0
     y = z = 0
 
-    E_beam = np.empty(xk.size + 1)
-    E_beam[0] = E_0*I_0  # eV/s
+    E_beam = np.empty(xk.size + 1)  #
     dIdx = np.empty(xk.size + 1)
     E_inst = np.empty(xk.size + 1)
-    E_inst[0] = E_0 # eV
     I_beam = np.empty(xk.size + 1)
-    I_beam[0] = I_0  # 1/s
-    dIdx[0] = medium.get_dIdx(E_inst[0], I_beam[0])
     dEb_dx = np.zeros_like(xk)  # eV/(m·s)
     dEdx = np.zeros_like(xk)
     dEdx_beam = np.zeros_like(xk)
     phi_free = np.array([beam.PD(x, y, z, alpha, beta) for x in xk]) # Free energy flux eV/(m^2·s)
+
+    E_beam[0] = E_0*I_0
+    E_inst[0] = E_0 # eV
+    I_beam[0] = I_0    # 1/s
+    dIdx[0] = medium.get_dIdx(E_inst[0], I_beam[0])
 
     for k, j in enumerate(cj):
         # Get energy gradient
@@ -68,14 +70,14 @@ if False:
     for j in range(N):
         # forward receivers k >= j
         for k in range(j, N):
-            temp = medium._Ed_fwd(cj[j], cell_width, xk[k], E_inst[j], I_beam[j]) * 1e2
+            temp = medium._Ed_fwd(cj[j], cell_width, xk[k], E_inst[j], I_beam[j])
             if(np.isnan(temp) or temp < 0):
                 temp = 0
             dEb_dx[k] += temp
-            dEb_dx_test[k] += temp # eV/sMFORWG
+            dEb_dx_test[k] += temp # eV/m
         # backward receivers k <= j-1
         for k in range(j - 1, -1, -1):
-            temp =  medium._Ed_bwd(cj[j], cell_width, xk[k], E_inst[j], I_beam[j]) * 1e2
+            temp =  medium._Ed_bwd(cj[j], cell_width, xk[k], E_inst[j], I_beam[j])
             if(np.isnan(temp) or temp < 0):
                 temp = 0
             dEb_dx[k] += temp
@@ -106,6 +108,7 @@ if False:
     dEb_dx_W = dEb_dx_test * eV_to_J  # W/m
     dEb_dx_kW_mm_test = dEb_dx_W / 1e6  # kW/mm
 #%%
+
     plt.figure(figsize=(6, 4))
     plt.plot(cj * 1e3, dEb_dx_kW_mm[1:], label='Semi Empirical Model', color='black')
     plt.xlabel('Distance (mm)')
@@ -156,9 +159,7 @@ if False:
     plt.ylabel(r'I [/s]')
     plt.plot(xk * 1e3, I_beam[1:] * 1e-6)
     plt.show()
-
-
-if True:
+if False:
     Lx = 60e-3
     dx = 1e-3
     Ly = 40e-3
@@ -192,4 +193,280 @@ if True:
     k = 91 # W/m*K
 
     ts, Ts = sim.heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, 10,
-                        dx = dx, dy = dy, view = True, dt_fact = 0.1)
+                        dx = dx, dy = dy, view = True, dt_fact = 0.01)
+
+##OLIVINE
+# Stopping Powers
+if True:
+    I_0 = 6.24 * 1e11 # [s^-1]
+    E_0 = 1e6 # [MeV]
+    r = 1e-3 # m
+    sig_ga_y0 = r
+    sig_ga_z0 = r
+    Z = 1
+    x0 = 0
+    beam = Beam(E_0, I_0, Z, sig_ga_y0 = sig_ga_y0, sig_ga_z0 = sig_ga_z0)
+
+    Z_Mg = 12
+    A_Mg = 24.305 # g/mol
+    Mg = atom('Mg', Z_Mg, A_Mg, 0.2222,)
+
+    Z_Fe = 9
+    A_Fe = 18.998 # g/mol
+    Fe = atom('Mg', Z_Fe, A_Fe, 0.2222)
+
+    Z_Si = 14
+    A_Si = 28.086 # g/mol
+    Si = atom('Mg', Z_Si, A_Si, 0.1111)
+
+    Z_O = 8
+    A_O = 15.999  # g/mol
+    O = atom('Mg', Z_O, A_O, 0.4444)
+
+    rho = 3.3  # g/cm^3
+    n = 9.8e23*1e6 # 1/m^3
+    W = H = 10e-3  # 10 mm square slab
+    A_xsec = W * H
+    P_perim = 2 * (W + H)
+    L = 7e-6
+    medium = Medium(n, rho, [Mg, Fe, Si, O], L, A_xsec, P_perim, "Ni//Stopping_Power//H.txt", beam,
+                    x0 = x0)
+
+    xk = np.linspace(0, L, 10000) # cell edges
+    cell_width = xk[1] - xk[0]
+    cj = 0.5*(xk[:-1] + xk[1:]) # cell centers
+    alpha = beta = 0.0
+    y = z = 0
+
+    E_beam = np.empty(xk.size + 1)  #
+    dIdx = np.empty(xk.size + 1)
+    E_inst = np.empty(xk.size + 1)
+    I_beam = np.empty(xk.size + 1)
+    dEb_dx = np.zeros_like(xk)  # eV/(m·s)
+    dEdx = np.zeros_like(xk)
+    dEdx_beam = np.zeros_like(xk)
+    phi_free = np.array([beam.PD(x, y, z, alpha, beta) for x in xk]) # Free energy flux eV/(m^2·s)
+
+    E_beam[0] = E_0*I_0
+    E_inst[0] = E_0 # eV
+    I_beam[0] = I_0    # 1/s
+
+    for k, j in enumerate(cj):
+        # Get energy gradient
+        dEdx[k] = medium.get_dEdx(E_inst[k])
+        dEdx_beam[k] = dEdx[k] * I_beam[k] + E_inst[k] * dIdx[k]
+        I_beam[k + 1] = I_beam[k]
+        E_beam[k + 1] = max(E_beam[k] + dEdx_beam[k] * cell_width, 0)
+        E_inst[k + 1] = E_beam[k+1]/I_beam[k+1]
+
+    print("initial finished")
+    dx = cell_width
+    N = len(cj)
+    dEb_dx_test = np.zeros_like(dEb_dx)
+    for k in range(N):
+        dEb_dx[k] -= I_beam[k] * dEdx[k]
+
+    # for j in range(N):
+    #     medium.set_LBD(E_inst[j])
+    #     # forward receivers k >= j
+    #     for k in range(j+1, N):
+    #         temp = medium._Ed_fwd_test(cj[j], xk[k], dx, E_inst[j], I_beam[j])
+    #         if(np.isnan(temp) or temp < 0):
+    #             temp = 0
+    #         dEb_dx[k] += temp
+    #         dEb_dx_test[k] += temp # eV/sMFORWG
+    #     # backward receivers k <= j-1
+    #     for k in range(j - 1, -1, -1):
+    #         temp =  medium._Ed_bwd_test(cj[j], xk[k], dx, E_inst[j], I_beam[j])
+    #         if(np.isnan(temp) or temp < 0):
+    #             temp = 0
+    #
+    #         dEb_dx[k] += temp
+    #         dEb_dx_test[k] += temp # eV/s
+
+    eV_to_J = 1.602176634e-19
+    dEb_dx_W = dEb_dx * eV_to_J  # W/m
+    dEb_dx_kW_mm = dEb_dx_W / 1e6  # kW/mm
+#%%
+
+    plt.figure(figsize=(6, 4))
+    plt.plot(cj * 1e3, dEb_dx_kW_mm[1:], label='Semi Empirical Model', color='black')
+    plt.xlabel('Distance (mm)')
+    plt.ylabel('Energy Deposition Gradient (kW/mm)')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+#%%
+    plt.title("dI/dx")
+    plt.xlabel('Distance [mm]')
+    plt.ylabel(r'$\frac{dI}{dx}$  $[s\cdot mm]^{-1}$')
+    plt.plot(xk * 1e3, dIdx[1:] * 1e-3, 'ko', markersize=3)
+    plt.show()
+
+    plt.title("Instantaneous Beam Energy")
+    plt.xlabel('xs [mm]')
+    plt.ylabel('E [MeV]')
+    plt.plot(xk * 1e3, E_inst[1:] * 1e-6)
+    plt.show()
+
+    plt.title("Beam Energy")
+    plt.xlabel('xs [mm]')
+    plt.ylabel(r'$E_{beam}$ [MeV/s]')
+    plt.plot(xk * 1e3, E_beam[1:] * 1e-6)
+    plt.show()
+
+    plt.title("Beam Intensity")
+    plt.xlabel('xs [mm]')
+    plt.ylabel(r'I [/s]')
+    plt.plot(xk * 1e3, I_beam[1:] * 1e-6)
+    plt.show()
+# Constant Temp
+if False:
+    Lx = 20e-3
+    dx = 0.05e-3
+    Ly = 10e-3
+    dy = 0.1e-3
+    # Parameters for the beam and values
+    I_0 = 6.24 * 1e11 # [s^-1]
+    E_0 = 1e6 # [MeV]
+    r = 1e-3 # m
+    sig_ga_y0 = r
+    sig_ga_z0 = r
+    Z = 1
+    x0 = 0
+    beam = Beam(E_0, I_0, Z, sig_ga_y0 = sig_ga_y0, sig_ga_z0 = sig_ga_z0)
+
+    # Parameters for the medium and values
+    Z_Mg = 12
+    A_Mg = 24.305 # g/mol
+    Mg = atom('Mg', Z_Mg, A_Mg, 0.2222,)
+
+    Z_Fe = 9
+    A_Fe = 18.998 # g/mol
+    Fe = atom('Mg', Z_Fe, A_Fe, 0.2222)
+
+    Z_Si = 14
+    A_Si = 28.086 # g/mol
+    Si = atom('Mg', Z_Si, A_Si, 0.1111)
+
+    Z_O = 8
+    A_O = 15.999  # g/mol
+    O = atom('Mg', Z_O, A_O, 0.4444)
+
+    rho = 3.3  # g/cm^3
+    n = 9.8e23*1e6 # 1/m^3
+    W = H = 10e-3  # 10 mm square slab
+    A_xsec = W * H
+    P_perim = 2 * (W + H)
+    medium = Medium(n, rho, [Mg, Fe, Si, O], Lx, A_xsec, P_perim, "Ni//Stopping_Power//H.txt", beam,
+                    x0 = x0)
+
+
+    # Parameters for
+    rho *= 1e3 # kg/m^3
+    C = 850 # J/(kg*K)
+    k = 1.7 # W/m*K
+
+    ts, Ts = sim.heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, 10,
+                        dx = dx, dy = dy, view = True, dt_fact = 0.3)
+
+# BB Radiation
+if True:
+    Lx = 10e-6
+    dx = 0.05e-6
+    Ly = 10e-6
+    dy = 0.1e-6
+    # Parameters for the beam and values
+    I_0 = 6.24 * 1e11  # [s^-1]
+    E_0 = 1e6  # [MeV]
+    r = 1e-3  # m
+    sig_ga_y0 = r
+    sig_ga_z0 = r
+    Z = 1
+    x0 = 0
+    beam = Beam(E_0, I_0, Z, sig_ga_y0=sig_ga_y0, sig_ga_z0=sig_ga_z0)
+
+    # Parameters for the medium and values
+    Z_Mg = 12
+    A_Mg = 24.305  # g/mol
+    Mg = atom('Mg', Z_Mg, A_Mg, 0.2222, )
+
+    Z_Fe = 9
+    A_Fe = 18.998  # g/mol
+    Fe = atom('Mg', Z_Fe, A_Fe, 0.2222)
+
+    Z_Si = 14
+    A_Si = 28.086  # g/mol
+    Si = atom('Mg', Z_Si, A_Si, 0.1111)
+
+    Z_O = 8
+    A_O = 15.999  # g/mol
+    O = atom('Mg', Z_O, A_O, 0.4444)
+
+    rho = 3.3  # g/cm^3
+    n = 9.8e23 * 1e6  # 1/m^3
+    W = H = 10e-3  # 10 mm square slab
+    A_xsec = W * H
+    P_perim = 2 * (W + H)
+    medium = Medium(n, rho, [Mg, Fe, Si, O], Lx, A_xsec, P_perim, "Ni//Stopping_Power//H.txt", beam,
+                    x0=x0)
+
+    # Parameters for
+    rho *= 1e3  # kg/m^3
+    C = 850  # J/(kg*K)
+    k = 1.7  # W/m*K
+
+    ts, Ts = sim.heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, 10,
+                                 T0 = 0, T0_faces = 0, rad_bnd = True,
+                                 dx=dx, dy=dy, dt_fact=0.2, view=True, view_freq = 0.0001)
+
+# SHOWING BLACKBODY RADIATION
+if True:
+    Lx = 10e-3
+    dx = 0.1e-3
+    Ly = 10e-3
+    dy = 0.1e-3
+    # Parameters for the beam and values
+    I_0 = 6.24 * 1e9  # [s^-1]
+    E_0 = 100e6  # [MeV]
+    r = 1e-3  # m
+    sig_ga_y0 = r
+    sig_ga_z0 = r
+    Z = 1
+    x0 = 0
+    beam = Beam(E_0, I_0, Z, sig_ga_y0=sig_ga_y0, sig_ga_z0=sig_ga_z0)
+
+    # Parameters for the medium and values
+    Z_Mg = 12
+    A_Mg = 24.305  # g/mol
+    Mg = atom('Mg', Z_Mg, A_Mg, 0.2222, )
+
+    Z_Fe = 9
+    A_Fe = 18.998  # g/mol
+    Fe = atom('Mg', Z_Fe, A_Fe, 0.2222)
+
+    Z_Si = 14
+    A_Si = 28.086  # g/mol
+    Si = atom('Mg', Z_Si, A_Si, 0.1111)
+
+    Z_O = 8
+    A_O = 15.999  # g/mol
+    O = atom('Mg', Z_O, A_O, 0.4444)
+
+    rho = 3.3  # g/cm^3
+    n = 9.8e23 * 1e6  # 1/m^3
+    W = H = 10e-3  # 10 mm square slab
+    A_xsec = W * H
+    P_perim = 2 * (W + H)
+    medium = Medium(n, rho, [Mg, Fe, Si, O], Lx, A_xsec, P_perim, "Ni//Stopping_Power//H.txt", beam,
+                    x0=x0)
+
+    # Parameters for
+    rho *= 1e3  # kg/m^3
+    C = 850  # J/(kg*K)
+    k = 1.7  # W/m*K
+
+    ts, Ts = sim.heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, 10, SE = 0,
+                                 T0 = 298, T0_faces=5000, rad_bnd=True,
+                                 dx=dx, dy=dy, dt_fact=0.005, view=True)
