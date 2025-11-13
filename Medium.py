@@ -116,7 +116,7 @@ def read_SRIM_ev_atom_m2(filename):
     if not E_list:
         raise ValueError("No SRIM numeric rows found in file.")
 
-     return np.array(E_list), np.array(elec_list), np.array(nucl_list)
+    return np.array(E_list), np.array(elec_list), np.array(nucl_list)
 
 # ATOM CLASS: Used to describe atoms that comprise a medium of choice
 class atom:
