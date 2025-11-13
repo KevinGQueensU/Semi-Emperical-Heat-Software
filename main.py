@@ -197,7 +197,7 @@ if False:
 
 ##OLIVINE
 # Stopping Powers
-if True:
+if False:
     I_0 = 6.24 * 1e11 # [s^-1]
     E_0 = 1e6 # [MeV]
     r = 1e-3 # m
@@ -321,7 +321,58 @@ if True:
     plt.ylabel(r'I [/s]')
     plt.plot(xk * 1e3, I_beam[1:] * 1e-6)
     plt.show()
-# Constant Temp
+# 3D test
+if True:
+    Lx = 10e-6
+    dx = 0.05e-6
+    Ly = 10e-6
+    dy = 0.1e-6
+    Lz = 10e-6
+    dz = 0.1e-6
+    # Parameters for the beam and values
+    I_0 = 6.24 * 1e11  # [s^-1]
+    E_0 = 1e6  # [MeV]
+    r = 0.5e-6  # m
+    sig_ga_y0 = r
+    sig_ga_z0 = r
+    Z = 1
+    x0 = 0
+    beam = Beam(E_0, I_0, Z, sig_ga_y0=sig_ga_y0, sig_ga_z0=sig_ga_z0)
+
+    # Parameters for the medium and values
+    Z_Mg = 12
+    A_Mg = 24.305  # g/mol
+    Mg = atom('Mg', Z_Mg, A_Mg, 0.2222, )
+
+    Z_Fe = 9
+    A_Fe = 18.998  # g/mol
+    Fe = atom('Mg', Z_Fe, A_Fe, 0.2222)
+
+    Z_Si = 14
+    A_Si = 28.086  # g/mol
+    Si = atom('Mg', Z_Si, A_Si, 0.1111)
+
+    Z_O = 8
+    A_O = 15.999  # g/mol
+    O = atom('Mg', Z_O, A_O, 0.4444)
+
+    rho = 3.3  # g/cm^3
+    n = 9.8e23 * 1e6  # 1/m^3
+    W = H = 10e-6  # 10 mm square slab
+    A_xsec = W * H
+    P_perim = 2 * (W + H)
+    medium = Medium(n, rho, [Mg, Fe, Si, O], Lx, A_xsec, P_perim, "Ni//Stopping_Power//H.txt", beam,
+                    x0=x0)
+
+    # Parameters for
+    rho *= 1e3  # kg/m^3
+    C = 850  # J/(kg*K)
+    k = 1.7  # W/m*K
+
+    sim.heateq_solid_3d(beam, medium, Lx, Ly, Lz, rho, C, k, 1000,
+                                 T0 = 298, T0_faces = 298, rad_bnd = False,
+                                 dx=dx, dy=dy, dz=dz, dt=0.000001, view=True, view_freq = 0.0001)
+# 2D Constant Temp
 if False:
     Lx = 20e-3
     dx = 0.05e-3
@@ -371,8 +422,8 @@ if False:
     ts, Ts = sim.heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, 10,
                         dx = dx, dy = dy, view = True, dt_fact = 0.3)
 
-# BB Radiation
-if True:
+# 2D BB Radiation
+if False:
     Lx = 10e-6
     dx = 0.05e-6
     Ly = 10e-6
@@ -380,7 +431,7 @@ if True:
     # Parameters for the beam and values
     I_0 = 6.24 * 1e11  # [s^-1]
     E_0 = 1e6  # [MeV]
-    r = 1e-3  # m
+    r = 0.5e-6  # m
     sig_ga_y0 = r
     sig_ga_z0 = r
     Z = 1
@@ -406,7 +457,7 @@ if True:
 
     rho = 3.3  # g/cm^3
     n = 9.8e23 * 1e6  # 1/m^3
-    W = H = 10e-3  # 10 mm square slab
+    W = H = 10e-6  # 10 mm square slab
     A_xsec = W * H
     P_perim = 2 * (W + H)
     medium = Medium(n, rho, [Mg, Fe, Si, O], Lx, A_xsec, P_perim, "Ni//Stopping_Power//H.txt", beam,
@@ -417,12 +468,12 @@ if True:
     C = 850  # J/(kg*K)
     k = 1.7  # W/m*K
 
-    ts, Ts = sim.heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, 10,
-                                 T0 = 0, T0_faces = 0, rad_bnd = True,
-                                 dx=dx, dy=dy, dt_fact=0.2, view=True, view_freq = 0.0001)
+    sim.heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, 1000,
+                                 T0 = 1, T0_faces = 1, rad_bnd = True,
+                                 dx=dx, dy=dy, dt=0.000001, view=True, view_freq = 0.0001, res = 1e-9)
 
 # SHOWING BLACKBODY RADIATION
-if True:
+if False:
     Lx = 10e-3
     dx = 0.1e-3
     Ly = 10e-3
@@ -469,4 +520,4 @@ if True:
 
     ts, Ts = sim.heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, 10, SE = 0,
                                  T0 = 298, T0_faces=5000, rad_bnd=True,
-                                 dx=dx, dy=dy, dt_fact=0.005, view=True)
+                                 dx=dx, dy=dy, dt = 0.005, view=True)
