@@ -322,7 +322,7 @@ if False:
     plt.plot(xk * 1e3, I_beam[1:] * 1e-6)
     plt.show()
 # 3D test
-if True:
+if False:
     Lx = 10e-6
     dx = 0.05e-6
     Ly = 10e-6
@@ -361,7 +361,7 @@ if True:
     W = H = 10e-6  # 10 mm square slab
     A_xsec = W * H
     P_perim = 2 * (W + H)
-    medium = Medium(n, rho, [Mg, Fe, Si, O], Lx, A_xsec, P_perim, "Ni//Stopping_Power//H.txt", beam,
+    medium = Medium(rho, [Mg, Fe, Si, O], Lx, A_xsec, P_perim, "Ni//Stopping_Power//H.txt", beam,
                     x0=x0)
 
     # Parameters for
@@ -373,15 +373,15 @@ if True:
                                  T0 = 298, T0_faces = 298, rad_bnd = False,
                                  dx=dx, dy=dy, dz=dz, dt=0.000001, view=True, view_freq = 0.0001)
 # 2D Constant Temp
-if False:
-    Lx = 20e-3
-    dx = 0.05e-3
-    Ly = 10e-3
-    dy = 0.1e-3
+if True:
+    Lx = 15e-6
+    dx = 0.1e-6
+    Ly = 10e-6
+    dy = 0.1e-6
     # Parameters for the beam and values
     I_0 = 6.24 * 1e11 # [s^-1]
     E_0 = 1e6 # [MeV]
-    r = 1e-3 # m
+    r = 1e-7 # m
     sig_ga_y0 = r
     sig_ga_z0 = r
     Z = 1
@@ -391,7 +391,7 @@ if False:
     # Parameters for the medium and values
     Z_Mg = 12
     A_Mg = 24.305 # g/mol
-    Mg = atom('Mg', Z_Mg, A_Mg, 0.2222,)
+    Mg = atom('Mg', Z_Mg, A_Mg, 0.2222)
 
     Z_Fe = 9
     A_Fe = 18.998 # g/mol
@@ -410,7 +410,7 @@ if False:
     W = H = 10e-3  # 10 mm square slab
     A_xsec = W * H
     P_perim = 2 * (W + H)
-    medium = Medium(n, rho, [Mg, Fe, Si, O], Lx, A_xsec, P_perim, "Ni//Stopping_Power//H.txt", beam,
+    medium = Medium(rho, [Mg, Fe, Si, O], Lx, A_xsec, P_perim, "Ni//Stopping_Power//H.txt", beam,
                     x0 = x0)
 
 
@@ -419,8 +419,10 @@ if False:
     C = 850 # J/(kg*K)
     k = 1.7 # W/m*K
 
-    ts, Ts = sim.heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, 10,
-                        dx = dx, dy = dy, view = True, dt_fact = 0.3)
+    sim.heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, 10,
+                        T0 = 298, T0_faces = [0, 0, 298, 298], dx = dx, dy = dy, view = True,
+                        dT_target= 1,
+                        dt = 1e-13, dt_ramp = 2)
 
 # 2D BB Radiation
 if False:

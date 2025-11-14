@@ -167,17 +167,16 @@ class Medium:
     # L (length of medium, m), A (cross sectional area along x, m^2),
     # P (perimeter of cross sectional area along x, m),
     # dEdx_filename (filename that has stopping power table [E, Se]
-    def __init__(self, n, rho, atoms, L, A, P, dEdX_filename, beam, x0 = 0):
+    def __init__(self, rho, atoms, Lx, Ly, Lz, dEdX_filename, beam, x0 = 0):
         if isinstance(atoms, (list, tuple, np.ndarray)):
             self.atoms = np.array(list(atoms), dtype=object).reshape(-1)
         else:
             # if only a single atom is passed
             self.atoms = np.array([atoms], dtype=object)
-        self.n = n # electron density 1/m^3
         self.rho = rho # bulk density g/cm^3
-        self.A = A # area m^2
-        self.P = P # perimeter m
-        self.L = L # length m
+        self.A = Ly * Lz # area m^2
+        self.P = 2(Ly + Lz) # perimeter m
+        self.L = Lx # length m
         self.x0 = x0 # start of medium, m
         self.r = 2*A/P # radius m
         self.beam = beam
@@ -227,27 +226,18 @@ class Medium:
         self.r = 2*self.A/self.P
 
     # Return the stopping power interpolated from the table in eV/m*atom
-    def get_Se(self, E):
+    def get_Se_ev_m_atom(self, E):
         return self.dEdx_interp(E)  # eV/m*atom
 
     # Return the stopping power interpolated from the table in eV/m
     def get_Se_ev_m(self, E):
         return self.dEdx_interp(E) * self.N_tot
+
     # Compute the intensity gradient dI/dx
     def get_dIdx(self, E, I, test = False):
         if test:
             return self.compute_sig(E)
         return - self.compute_sig(E) * I # 1/(m*s)
-
-    def dEdx_Bethe(self, E, beam):
-        E_rest = beam.A * 931.494 * 1e6  # rest energy of a proton
-        gamma = 1 + E/E_rest
-        beta_r = np.sqrt(1-1/gamma**2)
-
-        k_0 = 1/(4*np.pi*scipy.constants.epsilon_0)
-        prefct = (4*np.pi*k_0**2*beam.Z**2 * scipy.constants.e**4 * self.n)/(E_rest*beta_r**2)
-        ln_fct = 2*E_rest*beta_r**2/(beam.Vm*(1-beta_r**2)) - beta_r**2
-        return prefct * (np.log(ln_fct) - beta_r**2)
 
     # PRIVATE: Compute forward and lateral scattering from secondary cascades
     def _Ed_fwd(self, cj, cell_width, x_fwd, E, I):

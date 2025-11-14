@@ -5,7 +5,6 @@ from Beam import Beam
 import bisect
 import numpy as np
 import scipy.constants as const
-from mayavi import mlab
 from fipy import FaceVariable, CellVariable, Grid2D, Grid3D, TransientTerm, DiffusionTerm, Viewer
 
 
@@ -51,10 +50,9 @@ def compute_SE(x, y, z, alpha, beta, x_ref, beam: Beam,  mediums, dx = 0.1):
     SE = freeE_flux * (1/beam.E_0) * dEddx
     return SE
 
-def heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k,
-                    t, T0 = 298.0, T0_faces = 0, T0_top = None, T0_bot = None,
-                    T0_left = None, T0_right = None, T_amb = 0, rad_bnd = False,
-                    eps = 1, dx = 1e-3, dy = 1e-3, dt = 0.1, res = 1e-8,
+def heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, t,
+                    T0 = 298.0, T0_faces: np.ndarray[float] | None = None, rad_bnd: np.ndarray[bool] | bool = False, T_amb = 298,
+                    eps = 1, dx = 1e-3, dy = 1e-3, dt = 0.1, dt_ramp = None, dt_max = 1, dT_target = None,
                     x_shift = None, y_shift = None, SE = None,
                     alpha = 0, beta = 0, view=False, view_freq = 0):
 
@@ -114,23 +112,16 @@ def heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k,
     SE = CellVariable(mesh=mesh, value=SE, name=r"$S_{E}$")
     T = CellVariable(mesh=mesh, value=float(T0), hasOld=True, name="T [K]")
 
-    if T0_top is None:
-        T0_top = T0_faces
-    if T0_bot is None:
-        T0_bot = T0_faces
-    if T0_left is None:
-        T0_left = T0_faces
-    if T0_right is None:
-        T0_right = T0_faces
 
     K = CellVariable(mesh = mesh, value = float(k), rank = 0)
     rho_C = CellVariable(mesh = mesh, value = float(rho * C), rank = 0)
 
-    if(rad_bnd):
-        m_top = mesh.facesTop
-        m_bot = mesh.facesBottom
-        m_left = mesh.facesLeft
-        m_right = mesh.facesRight
+    m_top = mesh.facesTop
+    m_bot = mesh.facesBottom
+    m_left = mesh.facesLeft
+    m_right = mesh.facesRight
+
+    if np.any(rad_bnd):
         top_cells = mesh.faceCellIDs[0][m_top]
         bottom_cells = mesh.faceCellIDs[0][m_bot]
         left_cells = mesh.faceCellIDs[0][m_left]
@@ -146,61 +137,74 @@ def heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k,
         left_mask[left_cells] = True
         right_mask[right_cells] = True
 
-        T.setValue(T0_top, where=top_mask)
-        T.setValue(T0_bot, where=bottom_mask)
-        T.setValue(T0_left, where=left_mask)
-        T.setValue(T0_right, where=right_mask)
+        masks = [top_mask, bottom_mask, left_mask, right_mask]
+        for i, mask in enumerate(masks):
+            T.setValue(T0_faces[i], where=mask)
 
 
         sig = const.Stefan_Boltzmann
         T_face = T.faceValue.value
         q_all = np.zeros_like(T_face)
 
-        q_all[m_top] = eps * sig * (T_face[m_top] - T_amb) ** 4
-        q_all[m_bot] = eps * sig * (T_face[m_bot]- T_amb) ** 4
-        q_all[m_left] = eps * sig * (T_face[m_left]- T_amb) ** 4
-        q_all[m_right] = eps * sig * (T_face[m_right]- T_amb) ** 4
+        rad_int = np.array(rad_bnd).astype(int)
+        q_all[m_top] = eps * sig * (T_face[m_top]**4 - T_amb**4) * rad_int[0]
+        q_all[m_bot] = eps * sig * (T_face[m_bot]**4 - T_amb**4) * rad_int[1]
+        q_all[m_left] = eps * sig * (T_face[m_left]**4 - T_amb**4) * rad_int[2]
+        q_all[m_right] = eps * sig * (T_face[m_right]**4 - T_amb**4)  * rad_int[3]
 
         flux_faces = FaceVariable(mesh=mesh, value=0.0)
         flux_faces.setValue(-q_all)
         eq = TransientTerm(coeff=rho_C, var=T) == DiffusionTerm(coeff=K, var=T) + SE + \
              (mesh.exteriorFaces * flux_faces).divergence
         K.constrain(0, mesh.exteriorFaces)
+
+        for i, rad in enumerate(rad_bnd):
+            if not rad:
+                T.constrain(T0_faces[i], where=masks[i])
+
+    elif T0_faces is not None:
+        ms =  np.array([m_top, m_bot, m_left, m_right])
+        eq = TransientTerm(coeff = rho * C, var = T) == DiffusionTerm(coeff=k, var=T) + SE
+        for i, m in enumerate(ms):
+            T.constrain(T0_faces[i], where=m)
     else:
         eq = TransientTerm(coeff = rho * C, var = T) == DiffusionTerm(coeff=k, var=T) + SE
-        T.constrain(T0_top, mesh.facesTop)
-        T.constrain(T0_bot, mesh.facesBottom)
-        T.constrain(T0_left, mesh.facesLeft)
-        T.constrain(T0_right, mesh.facesRight)
 
     if view:
         viewer = Viewer(vars=T)
+        viewer.axes.set_xlabel(r"x [m]")
+        viewer.axes.set_ylabel(r"y [m]")
+
     t_elapsed = 0.0
     t_end = t  # seconds
     t_next = 0
-    res_temp = 1e10
+
     while t_elapsed < t_end:
         T.updateOld()
-        if (rad_bnd):
+        if np.any(rad_bnd):
             T_face = T.faceValue.value  # shape = (nFaces,)
-            q_all[m_top] = eps * sig * (T_face[m_top] - T_amb) ** 4
-            q_all[m_bot] = eps * sig * (T_face[m_bot] - T_amb) ** 4
-            q_all[m_left] = eps * sig * (T_face[m_left] - T_amb) ** 4
-            q_all[m_right] = eps * sig * (T_face[m_right] - T_amb) ** 4
+            q_all[m_top] = eps * sig * (T_face[m_top]** 4 - T_amb** 4) * rad_int[0]
+            q_all[m_bot] = eps * sig * (T_face[m_bot]** 4 - T_amb** 4) * rad_int[1]
+            q_all[m_left] = eps * sig * (T_face[m_left]** 4 - T_amb** 4)  * rad_int[2]
+            q_all[m_right] = eps * sig * (T_face[m_right]** 4 - T_amb** 4) * rad_int[3]
             flux_faces.setValue(-q_all)
             eq = TransientTerm(coeff=rho_C, var=T) == DiffusionTerm(coeff=K, var=T) + SE + \
                  (mesh.exteriorFaces * flux_faces).divergence
-        res_arr = np.empty(0)
-        while res_temp > res:
-            res_temp = eq.sweep(var = T, dt = dt)
-            res_arr = np.append(res_arr, res_temp)
-            if(len(res_arr) > 1):
-                if(res_arr[-1] == res_arr[-2]):
-                    print("Time step too large for desired residual, reducing by 10%")
-                    dt *= 0.9
+        T_old = T.value.copy()
+        if(dT_target is not None):
+            while(1):
+                eq.solve(var = T, dt = dt)
+                dT_inf = np.max(np.abs(T.value - T_old))
+                if(dT_inf > dT_target):
+                    print("Time step too large for required dT, reducing by 50%")
+                    dt *= 0.5
+                else:
+                    break
         t_elapsed += dt
-        if(dt < 1):
-            dt *= 1.01
+        if(dt_ramp is not None and dt < dt_max):
+            dt *= dt_ramp
+        if(dt > dt_max):
+            dt = dt_max
         if view:
             if t_elapsed > t_next:
                 if(rad_bnd):
@@ -209,7 +213,7 @@ def heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k,
                 viewer.plot()
                 print("Time elapsed: " + str(t_elapsed))
     return
-
+#%%
 def heateq_solid_3d(beam, medium, Lx, Ly, Lz, rho, C, k,
                     t, T0=298.0, T0_faces=0, T0_top=None, T0_bot=None,
                     T0_left=None, T0_right=None, T0_front = None, T0_back = None, T_amb=0.0, rad_bnd=False,
@@ -294,7 +298,7 @@ def heateq_solid_3d(beam, medium, Lx, Ly, Lz, rho, C, k,
     K = CellVariable(mesh=mesh, value=float(k), rank=0)
     rho_C = CellVariable(mesh=mesh, value=float(rho * C), rank=0)
 
-    if rad_bnd:
+    if np.any(rad_bnd):
         # --- build face masks (x,y,z) ---
         m_top = mesh.facesTop
         m_bot = mesh.facesBottom

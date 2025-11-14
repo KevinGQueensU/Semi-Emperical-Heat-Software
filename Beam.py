@@ -15,7 +15,6 @@ class Beam:
         self.I_0 = I_0 # s^-1
         self.P_0 = E_0 * I_0 # initial power, eV/s
 
-        E_rest = A*931.494*1e6 # rest energy of a proton
         self.A = A
         self.Z = Z
         self.f_gauss = f_gauss # f_gauss + f_ann SHOULD ALWAYS ADD UP TO 1
