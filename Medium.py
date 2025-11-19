@@ -175,10 +175,10 @@ class Medium:
             self.atoms = np.array([atoms], dtype=object)
         self.rho = rho # bulk density g/cm^3
         self.A = Ly * Lz # area m^2
-        self.P = 2(Ly + Lz) # perimeter m
+        self.P = 2*(Ly + Lz) # perimeter m
         self.L = Lx # length m
         self.x0 = x0 # start of medium, m
-        self.r = 2*A/P # radius m
+        self.r = 2*self.A/self.P # radius m
         self.beam = beam
         self.filename = dEdX_filename
         self.Es, self.Se_elec, self.Se_nucl = read_SRIM_ev_atom_m2(dEdX_filename)
@@ -292,10 +292,3 @@ class Medium:
 
     def get_dEdx(self, E):
         return -self.get_Se_ev_m(E)  # eV/(m·s)
-
-
-
-
-#%%
-if True:
-    filename = 'C://Users//k_gao//Desktop//PaleoBSMwithTRIM-main//minerals_def//Ni//Cross_Sections//Ni_px.txt'
