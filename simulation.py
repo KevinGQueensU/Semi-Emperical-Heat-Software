@@ -5,7 +5,7 @@ from Beam import Beam
 import bisect
 import numpy as np
 import scipy.constants as const
-from fipy import FaceVariable, CellVariable, Grid2D, Grid3D, TransientTerm, DiffusionTerm, Viewer
+from fipy import FaceVariable, CellVariable, Grid2D, Grid3D, TransientTerm, DiffusionTerm, Viewer, MatplotlibViewer
 
 
 def region_index(x0, x):
@@ -50,6 +50,12 @@ def compute_SE(x, y, z, alpha, beta, x_ref, beam: Beam,  mediums, dx = 0.1):
     SE = freeE_flux * (1/beam.E_0) * dEddx
     return SE
 
+import matplotlib.ticker as ticker
+def forceAspect(ax,aspect=1):
+    im = ax.get_images()
+    extent =  im[0].get_extent()
+    ax.set_aspect(abs((extent[1]-extent[0])/(extent[3]-extent[2]))/aspect);
+
 def heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, t,
                     T0 = 298.0, T0_faces: np.ndarray[float] | None = None, rad_bnd: np.ndarray[bool] | bool = False, T_amb = 298,
                     eps = 1, dx = 1e-3, dy = 1e-3, dt = 0.1, dt_ramp = None, dt_max = 1, dT_target = None,
@@ -89,19 +95,19 @@ def heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, t,
         I_beam[0] = I_0  # 1/s
         dIdx[0] = medium.get_dIdx(E_inst[0], I_beam[0])
 
-        for k, j in enumerate(cj):
-            if (k == nx - 1):
+        for l, j in enumerate(cj):
+            if (l == nx - 1):
                 break
             # Get energy gradient
-            dEdx[k] = medium.get_dEdx(E_inst[k])
-            dEdx_beam[k] = dEdx[k] * I_beam[k] + E_inst[k] * dIdx[k]
-            I_beam[k + 1] = I_beam[k] + dIdx[k] * dx
-            E_beam[k + 1] = max(E_beam[k] + dEdx_beam[k] * dx, 0)
-            E_inst[k + 1] = E_beam[k + 1] / I_beam[k + 1]
-            dIdx[k + 1] = medium.get_dIdx(E_inst[k + 1], I_beam[k + 1])  # (1/s)/m
+            dEdx[l] = medium.get_dEdx(E_inst[l])
+            dEdx_beam[l] = dEdx[l] * I_beam[l] + E_inst[l] * dIdx[l]
+            I_beam[l + 1] = I_beam[l] + dIdx[l] * dx
+            E_beam[l + 1] = max(E_beam[l] + dEdx_beam[l] * dx, 0)
+            E_inst[l + 1] = E_beam[l + 1] / I_beam[l + 1]
+            dIdx[l + 1] = medium.get_dIdx(E_inst[l + 1], I_beam[l + 1])  # (1/s)/m
 
-        for k in range(nx):
-            dEb_dx[k] -= I_beam[k] * dEdx[k]
+        for l in range(nx):
+            dEb_dx[l] -= I_beam[l] * dEdx[l]
 
         phi_free = np.array(beam.PD(CX, CY, 0, alpha, beta))
         dEb_dx *= 1.602176634e-19 # ev to J
@@ -111,10 +117,16 @@ def heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, t,
 
     SE = CellVariable(mesh=mesh, value=SE, name=r"$S_{E}$")
     T = CellVariable(mesh=mesh, value=float(T0), hasOld=True, name="T [K]")
-
-
-    K = CellVariable(mesh = mesh, value = float(k), rank = 0)
-    rho_C = CellVariable(mesh = mesh, value = float(rho * C), rank = 0)
+    if(callable(k)):
+        K = CellVariable(mesh = mesh, value = k(T))
+        print("hello")
+    else:
+        K = CellVariable(mesh = mesh, value = k, rank = 0)
+    if(callable(C)):
+        rho_C = CellVariable(mesh = mesh, value = rho * C(T))
+        print("hello")
+    else:
+        rho_C = CellVariable(mesh = mesh, value = rho * C, rank = 0)
 
     m_top = mesh.facesTop
     m_bot = mesh.facesBottom
@@ -164,11 +176,11 @@ def heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, t,
 
     elif T0_faces is not None:
         ms =  np.array([m_top, m_bot, m_left, m_right])
-        eq = TransientTerm(coeff = rho * C, var = T) == DiffusionTerm(coeff=k, var=T) + SE
+        eq = TransientTerm(coeff = rho_C, var = T) == DiffusionTerm(coeff=l, var=T) + SE
         for i, m in enumerate(ms):
             T.constrain(T0_faces[i], where=m)
     else:
-        eq = TransientTerm(coeff = rho * C, var = T) == DiffusionTerm(coeff=k, var=T) + SE
+        eq = TransientTerm(coeff = rho_C, var = T) == DiffusionTerm(coeff=l, var=T) + SE
 
     if view:
         viewer = Viewer(vars=T)
@@ -178,6 +190,7 @@ def heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, t,
     t_elapsed = 0.0
     t_end = t  # seconds
     t_next = 0
+
 
     while t_elapsed < t_end:
         T.updateOld()
@@ -211,6 +224,9 @@ def heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, t,
                     print(f"t={t_elapsed + dt:.3f}s  mean face temp ={T_face.mean():.4f} K, max={T_face.max():.4f} K)")
                 t_next += view_freq
                 viewer.plot()
+                forceAspect(viewer.axes)
+                style_axes(viewer)
+                viewer.fig.set_size_inches(18.5, 10.5)
                 print("Time elapsed: " + str(t_elapsed))
     return
 #%%
@@ -385,6 +401,7 @@ def heateq_solid_3d(beam, medium, Lx, Ly, Lz, rho, C, k,
         t_elapsed += dt
         if view and t_elapsed >= t_next:
             viewer.plot()
+            viewer.fig.resize_inches((16, 16))
             t_next += max(view_freq, 0.0)
 
     return
