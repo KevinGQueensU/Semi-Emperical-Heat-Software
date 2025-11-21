@@ -1,5 +1,3 @@
-from fipy.terms.sourceTerm import SourceTerm
-
 from Medium import atom, Medium
 from Beam import Beam
 import bisect
@@ -60,16 +58,6 @@ def forceAspect(ax,aspect=1):
     extent =  im[0].get_extent()
     ax.set_aspect(abs((extent[1]-extent[0])/(extent[3]-extent[2]))/aspect);
 
-from fipy import Grid2D, CellVariable, FaceVariable, TransientTerm, DiffusionTerm, Viewer
-from fipy.tools import numerix as numerix
-import numpy as np
-import scipy.constants as const
-
-# --- paste into simulation.py ---
-
-# --- paste into simulation.py ---
-
-from fipy import CellVariable, FaceVariable, Grid2D, TransientTerm, DiffusionTerm, Viewer
 from fipy.boundaryConditions import FixedValue, FixedFlux
 from fipy.tools import numerix as nx
 
