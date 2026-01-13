@@ -1,5 +1,6 @@
-from Medium import Atom, Medium
+from Medium import Medium
 from Beam import Beam
+from Boundary_Conditions import BoundaryConditions
 import numpy as np
 import bisect
 import scipy.constants as const
@@ -9,7 +10,6 @@ from fipy.tools import numerix as nx
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  (needed for 3D)
-
 
 def region_index(x0, x):
     # x0 must be sorted (strictly increasing recommended)
@@ -110,25 +110,21 @@ def forceAspect(ax,aspect=1):
 _SIGMA_SB = 5.670374419e-8  # Stefan–Boltzmann constant [W/(m^2·K^4)]
 
 def heateq_solid_2d(
-    beam, medium,
+    beam: Beam, medium: Medium, BC: BoundaryConditions,
     Lx: float, Ly: float,
     rho: float,
     C_f,                    # callable: Cp(T) [J/(kg·K)]
     k_f,                    # callable: k(T)  [W/(m·K)]
     t_end: float,           # total simulation time [s]
+    T0: float = 298,
     SE = None,        # uniform volumetric source, W/m^3
     x_shift=None,
     y_shift=None,
     alpha = 0,
     beta = 0,
-    T0: float = 298.0,
-    T0_faces = (None, None, None, None),      # (left, right, bottom, top) fixed values or None
-    rad_bnd = (False, False, False, False),   # (left, right, bottom, top) radiation on/off
-    T_amb: float = 298.0,
-    eps: float = 1.0,       # emissivity
     dx: float = 1e-4, dy: float = 1e-4,
     dt: float = 1e-3,
-    dt_ramp: float = 0.0,   # optional dt ramp
+    dt_ramp: float = None,   # optional dt ramp
     view: bool = False,
     view_freq: int = 20,    # update viewer every N steps
     dT_target = None,       # optional early stop on span
@@ -188,13 +184,13 @@ def heateq_solid_2d(
         SE = dEb_dx[:, None] * phi_free * 1 / E_beam[0]
         SE = SE.reshape(-1, order='F')
 
+    T0 = float(T0)
+    SE = float(SE)
     SE = CellVariable(mesh=mesh, value=SE, name=r"$S_{E}$")
+    T = CellVariable(mesh=mesh, value=T0, name="Temperature [K]", hasOld=True)
 
-    T0f = float(T0)
-    T = CellVariable(mesh=mesh, value=T0f, name="Temperature [K]", hasOld=True)
-
-    rhoC = CellVariable(mesh=mesh, name="rho*C", value=rho * float(C_f(T0f)))
-    k_cell = CellVariable(mesh=mesh, name="k(T)", value=float(k_f(T0f)))
+    rhoC = CellVariable(mesh=mesh, name="rho*C", value=rho * float(C_f(T0)))
+    k_cell = CellVariable(mesh=mesh, name="k(T)", value=float(k_f(T0)))
 
     def _refresh_material_props():
         Cp_val = C_f(T)   # J/(kg·K)
@@ -203,38 +199,6 @@ def heateq_solid_2d(
         k_cell.setValue(k_val)
 
     _refresh_material_props()
-
-    #  faces and masks
-    facesL = mesh.facesLeft
-    facesR = mesh.facesRight
-    facesB = mesh.facesBottom
-    facesT = mesh.facesTop
-    side_faces = (facesL, facesR, facesB, facesT)
-
-    fn = mesh.faceNormals
-    vertical = nx.abs(fn[0]) > 0.5   # left/right
-    horiz    = nx.abs(fn[1]) > 0.5   # bottom/top
-    face_areas = vertical * dy + horiz * dx   # shape (nFaces,)
-
-    #fixed-value BCs
-    fixed_bcs = []
-    for tv, faces, on in zip(T0_faces, side_faces, rad_bnd):
-        if tv is not None and on is False:
-            fixed_bcs.append(FixedValue(faces=faces, value=float(tv)))
-
-    # radiation (Robin)
-    def _build_radiation_bcs():
-        if not any(rad_bnd):
-            return []
-        Tface = T.faceValue
-        h_face = 4.0 * float(eps) * _SIGMA_SB * (Tface ** 3.0)
-        qn = h_face * (Tface - float(T_amb))  # W/m^2 (heat leaving domain)
-        bcs = []
-        for i, (on, faces) in enumerate(zip(rad_bnd, side_faces)):
-            if on:
-                bcs.append(FixedFlux(faces=faces, value=qn))
-        return bcs
-
 
     eq = TransientTerm(coeff=rhoC) == DiffusionTerm(coeff=k_cell) + SE
 
@@ -254,21 +218,12 @@ def heateq_solid_2d(
 
     while t_elapsed < t_end:
         T.updateOld()
-        if (dt_ramp is not None and dt < dt_max):
-            dt *= dt_ramp
-        if (dt > dt_max):
-            dt = dt_max
-        if (t_elapsed + dt > t_end):
-            dt = t_end - t_elapsed
-
-        # update props and BCs for implicit sweep
         _refresh_material_props()
-        bcs = fixed_bcs + _build_radiation_bcs()
-
         T_old = T.value.copy()
+        bcs = BC.update(mesh, T)
         if dT_target is not None:
             while True:
-                eq.solve(var=T, dt=dt, boundaryConditions=bcs)
+                eq.solve(var=T, dt=dt, boundaryConditions = bcs)
                 dT_inf = np.max(np.abs(T.value - T_old))
                 if dT_inf > dT_target:
                     print("Time step too large for required dT, reducing by 50%")
@@ -276,21 +231,21 @@ def heateq_solid_2d(
                 else:
                     break
         else:
-            eq.solve(var=T, dt=dt, boundaryConditions=bcs)
+            eq.solve(var=T, dt=dt, boundaryConditions= bcs)
 
         t_elapsed += dt
-
         if (dt_ramp is not None and dt < dt_max):
             dt *= dt_ramp
         if (dt > dt_max):
             dt = dt_max
         if (t_elapsed + dt > t_end):
-            dt = t_elapsed - t_end
+            dt = t_end - t_elapsed
 
         # diagnostics
         if (step % max(1, view_freq)) == 0:
-            Tmin = float(T.value.min()); Tmax = float(T.value.max())
-            print(f"t={t_elapsed + dt:0.3f}s  T[min,max]=[{Tmin:.2f}, {Tmax:.2f}]")
+            Tamb = float(BC.T_amb)
+            err = float(np.max(np.abs(T.value - Tamb)))
+            print(f"t={t_elapsed:.3f}s  Tmax={T.value.max():.6f}  Tmin={T.value.min():.6f}  max|T-Tamb|={err:.6e}")
 
         if viewer is not None:
             Tmin = float(T.value.min())
@@ -304,263 +259,6 @@ def heateq_solid_2d(
             viewer.plot()
         step += 1
 
-def heateq_solid_3d(beam, medium, Lx, Ly, Lz, rho, C, k, t,
-                    T0 = 298.0,
-                    T0_faces: np.ndarray[float] | None = None,
-                    rad_bnd: np.ndarray[bool] | bool = False,
-                    T_amb = 298, eps = 1,
-                    dx = 1e-3, dy = 1e-3, dz = 1e-3,
-                    dt = 0.1, dt_ramp = None, dt_max = 1, dT_target = None,
-                    x_shift = None, y_shift = None, z_shift = None,
-                    SE = None, alpha = 0, beta = 0,
-                    view=False, view_freq = 0):
-
-
-    import scipy.constants as const
-
-    if x_shift is None: x_shift = 0
-    if y_shift is None: y_shift = -Ly/2
-    if z_shift is None: z_shift = -Lz/2
-    import numpy as np
-    nx = int(np.ceil(Lx/dx))
-    ny = int(np.ceil(Ly/dy))
-    nz = int(np.ceil(Lz/dz))
-    mesh = Grid3D(nx=nx, dx=dx, ny=ny, dy=dy, nz=nz, dz=dz)
-    mesh += ((x_shift,), (y_shift,), (z_shift,))
-
-    cx = mesh.cellCenters[0].value
-    cy = mesh.cellCenters[1].value
-    cz = mesh.cellCenters[2].value
-    CX = cx.reshape((nx, ny, nz), order='F')
-    CY = cy.reshape((nx, ny, nz), order='F')
-    CZ = cz.reshape((nx, ny, nz), order='F')
-
-    # --- SE like your 2D (ported to 3D) ---
-    if SE is None:
-        cj = CX[:, 0, 0]
-        E_0 = beam.E_0
-        I_0 = beam.I_0
-
-        E_beam = np.empty_like(cj)
-        dIdx   = np.empty_like(cj)
-        E_inst = np.empty_like(cj)
-        I_beam = np.empty_like(cj)
-        dEb_dx = np.zeros_like(cj)
-        dEdx   = np.zeros_like(cj)
-        dEdx_beam = np.zeros_like(cj)
-
-        E_beam[0] = E_0 * I_0
-        E_inst[0] = E_0
-        I_beam[0] = I_0
-        dIdx[0]   = medium.get_dIdx(E_inst[0], I_beam[0])
-
-        for l, _ in enumerate(cj):
-            if l == nx - 1: break
-            dEdx[l]      = medium.get_dEdx(E_inst[l])
-            dEdx_beam[l] = dEdx[l] * I_beam[l] + E_inst[l] * dIdx[l]
-            I_beam[l+1]  = I_beam[l] + dIdx[l] * dx
-            E_beam[l+1]  = max(E_beam[l] + dEdx_beam[l] * dx, 0)
-            E_inst[l+1]  = E_beam[l+1] / I_beam[l+1]
-            dIdx[l+1]    = medium.get_dIdx(E_inst[l+1], I_beam[l+1])
-
-        for l in range(nx):
-            dEb_dx[l] -= I_beam[l] * dEdx[l]
-
-        phi_free = np.array(beam.PD(CX, CY, CZ, alpha, beta))
-        dEb_dx *= 1.602176634e-19 # eV→J
-
-        SE = dEb_dx[:, None, None] * phi_free * 1 / E_beam[0]
-        SE = SE.reshape(-1, order='F')
-
-    SE = CellVariable(mesh=mesh, value=SE, name=r"$S_{E}$")
-    T  = CellVariable(mesh=mesh, value=float(T0), hasOld=True, name="T [K]")
-
-    # k, rho*C can be functions of T (match your 2D pattern)
-    if callable(k):
-        K = CellVariable(mesh=mesh, value=k(T))
-    else:
-        K = CellVariable(mesh=mesh, value=k, rank=0)
-
-    if callable(C):
-        rho_C = CellVariable(mesh=mesh, value=rho * C(T))
-    else:
-        rho_C = CellVariable(mesh=mesh, value=rho * C, rank=0)
-
-    # face masks
-    m_top   = mesh.facesTop
-    m_bot   = mesh.facesBottom
-    m_left  = mesh.facesLeft
-    m_right = mesh.facesRight
-    m_front = mesh.facesFront
-    m_back  = mesh.facesBack
-
-    # normalize inputs like your 2D intent
-    # rad_bnd can be bool or array → broadcast to 6 faces [top, bottom, left, right, front(+z), back(-z)]
-    rad_arr = np.array(rad_bnd, dtype=bool)
-    if rad_arr.ndim == 0:
-        rad_arr = np.full(6, rad_arr)
-    rad_int = rad_arr.astype(int)
-
-    # T0_faces can be None, scalar, or array length 6
-    if T0_faces is None:
-        T0_faces = (T0, T0, T0, T0, T0, T0)
-    elif not np.iterable(T0_faces):
-        T0_faces = (float(T0_faces),) * 6
-    else:
-        T0_faces = tuple(map(float, T0_faces))
-
-    sig = const.Stefan_Boltzmann
-
-    # --- Branches like 2D ---
-    if np.any(rad_arr):
-
-        # paint boundary-adjacent cells once for all 6 faces (like your 2D masks)
-        def paint(face_mask, value):
-            cell_ids = mesh.faceCellIDs[0][face_mask]
-            cell_mask = np.zeros(mesh.numberOfCells, dtype=bool)
-            cell_mask[cell_ids] = True
-            T.setValue(value, where=cell_mask)
-
-        face_order = [m_top, m_bot, m_left, m_right, m_front, m_back]
-        for fm, v in zip(face_order, T0_faces):
-            paint(fm, v)
-
-        # disable diffusion through exterior faces (same idea as 2D)
-        K.constrain(0, mesh.exteriorFaces)
-
-        # initial flux assembly
-        T_face = T.faceValue.value
-        q_all = np.zeros_like(T_face)
-        q_all[m_top]   = eps * sig * (T_face[m_top]  ** 4 - T_amb ** 4) * rad_int[0]
-        q_all[m_bot]   = eps * sig * (T_face[m_bot]  ** 4 - T_amb ** 4) * rad_int[1]
-        q_all[m_left]  = eps * sig * (T_face[m_left] ** 4 - T_amb ** 4) * rad_int[2]
-        q_all[m_right] = eps * sig * (T_face[m_right]** 4 - T_amb ** 4) * rad_int[3]
-        q_all[m_front] = eps * sig * (T_face[m_front]** 4 - T_amb ** 4) * rad_int[4]
-        q_all[m_back]  = eps * sig * (T_face[m_back] ** 4 - T_amb ** 4) * rad_int[5]
-
-        flux_faces = FaceVariable(mesh=mesh, value=0.0)
-        flux_faces.setValue(-q_all)
-
-        eq = TransientTerm(coeff=rho_C, var=T) == DiffusionTerm(coeff=K, var=T) + SE + \
-             (mesh.exteriorFaces * flux_faces).divergence
-
-        # non-radiating faces get Dirichlet constraints (like your 2D logic)
-        for (fm, is_rad, v) in zip(face_order, rad_arr, T0_faces):
-            if not is_rad:
-                T.constrain(v, where=fm)
-
-    elif T0_faces is not None:
-        # Dirichlet on all 6 faces
-        eq = TransientTerm(coeff=rho_C, var=T) == DiffusionTerm(coeff=K, var=T) + SE
-        for (fm, v) in zip([m_top, m_bot, m_left, m_right, m_front, m_back], T0_faces):
-            T.constrain(v, where=fm)
-    else:
-        eq = TransientTerm(coeff=rho_C, var=T) == DiffusionTerm(coeff=K, var=T) + SE
-
-    if view:
-        # --- three orthogonal mid-slices: xy, xz, yz ---
-        ix, iy, iz = nx // 2, ny // 2, nz // 2
-        x0, x1 = x_shift, x_shift + Lx
-        y0, y1 = y_shift, y_shift + Ly
-        z0, z1 = z_shift, z_shift + Lz
-
-        fig, axes = plt.subplots(1, 3, figsize=(12, 4), constrained_layout=True)
-        A = T.value.reshape((nx, ny, nz), order='F')
-
-        im_xy = axes[0].imshow(A[:, :, iz].T, origin='lower', extent=[x0, x1, y0, y1], aspect='equal', cmap='turbo')
-        axes[0].set_title('xy @ mid z');
-        axes[0].set_xlabel('x [m]');
-        axes[0].set_ylabel('y [m]')
-
-        im_xz = axes[1].imshow(A[:, iy, :].T, origin='lower', extent=[x0, x1, z0, z1], aspect='equal', cmap='turbo')
-        axes[1].set_title('xz @ mid y');
-        axes[1].set_xlabel('x [m]');
-        axes[1].set_ylabel('z [m]')
-
-        im_yz = axes[2].imshow(A[ix, :, :].T, origin='lower', extent=[y0, y1, z0, z1], aspect='equal', cmap='turbo')
-        axes[2].set_title('yz @ mid x');
-        axes[2].set_xlabel('y [m]');
-        axes[2].set_ylabel('z [m]')
-
-        plt.colorbar(im_yz, ax=axes.ravel().tolist(), shrink=0.9, label='T [K]', cmap='turbo')
-        plt.show(block=False)
-
-    t_elapsed = 0.0
-    t_next = 0.0
-
-    while t_elapsed < t:
-        T.updateOld()
-
-        if callable(k):
-            K.setValue(k(T))
-
-        if callable(C):
-            rho_C.setValue(rho * C(T))
-
-        if np.any(rad_arr):
-            # rebuild radiation flux on all 6 faces each step
-
-            q_all[m_top]   = eps * sig * (T_face[m_top]  ** 4 - T_amb ** 4) * rad_int[0]
-            q_all[m_bot]   = eps * sig * (T_face[m_bot]  ** 4 - T_amb ** 4) * rad_int[1]
-            q_all[m_left]  = eps * sig * (T_face[m_left] ** 4 - T_amb ** 4) * rad_int[2]
-            q_all[m_right] = eps * sig * (T_face[m_right]** 4 - T_amb ** 4) * rad_int[3]
-            q_all[m_front] = eps * sig * (T_face[m_front]** 4 - T_amb ** 4) * rad_int[4]
-            q_all[m_back]  = eps * sig * (T_face[m_back] ** 4 - T_amb ** 4) * rad_int[5]
-            flux_faces.setValue(-q_all)
-
-            eq = TransientTerm(coeff=rho_C, var=T) == DiffusionTerm(coeff=K, var=T) + SE + \
-                 (mesh.exteriorFaces * flux_faces).divergence
-
-        T_old = T.value.copy()
-
-        if dT_target is not None:
-            while True:
-                eq.solve(var=T, dt=dt)
-                dT_inf = np.max(np.abs(T.value - T_old))
-                if dT_inf > dT_target:
-                    print("Time step too large for required dT, reducing by 50%")
-                    dt *= 0.5
-                else:
-                    break
-        else:
-            eq.solve(var=T, dt=dt)
-
-        t_elapsed += dt
-
-        if (dt_ramp is not None and dt < dt_max):
-            dt *= dt_ramp
-        if (dt > dt_max):
-            dt = dt_max
-        if(t_elapsed + dt > t):
-            dt = t - t_elapsed
-
-        if view and (t_elapsed > t_next):
-            A = T.value.reshape((nx, ny, nz), order='F')
-
-            im_xy.set_data(A[:, :, iz].T)
-            im_xz.set_data(A[:, iy, :].T)
-            im_yz.set_data(A[ix, :, :].T)
-
-            # keep all panels on the same dynamic scale (remove these two lines for fixed scale)
-            vmin = A.min();
-            vmax = A.max()
-            im_xy.set_clim(vmin, vmax)
-            im_xz.set_clim(vmin, vmax)
-            im_yz.set_clim(vmin, vmax)
-
-            # force an actual refresh in SciView / non-GUI contexts
-            fig.canvas.draw()  # draw the canvas now
-            fig.canvas.flush_events()  # process GUI events if any
-            plt.pause(0.001)  # yield control briefly
-
-            print("Time elapsed:", t_elapsed)
-            t_next += view_freq
-            A = T.value.reshape((nx, ny, nz), order='F')
-            print(f"t={t_elapsed:.4e}s  T[min,max]=[{A.min():.2f}, {A.max():.2f}]  ΔT={A.max() - A.min():.2f}")
-    plt.ioff()
-    plt.show()
-    return
-
 def scale_slice_axes(ax,
                      plane="xy",                  # "xy", "xz", or "yz"
                      units=("mm", "mm"),          # (x_units, y_units)
@@ -569,16 +267,6 @@ def scale_slice_axes(ax,
                      preserve_limits=True,
                      labelsize=13,                # axis label font size
                      ticklabelsize=11):           # tick label font size
-    """
-    Scale tick labels to desired units and set correct axis labels for 3D slice plots.
-
-    - plane: which slice this Axes shows ("xy", "xz", "yz")
-    - units: tuple of units for horizontal & vertical axes (e.g., ('mm','mm'))
-    - decimals: number of significant digits for tick text
-    - equal_aspect: force equal aspect in displayed units
-    - preserve_limits: restore x/y limits after any aspect/layout changes
-    - labelsize, ticklabelsize: font sizes for labels and tick labels
-    """
 
     # ---- validate plane and map to labels ----
     plane = plane.lower()
@@ -777,7 +465,7 @@ def heateq_solid_3d_test(beam, medium, Lx, Ly, Lz, rho, C, k, t,
     m_front = mesh.facesFront
     m_back = mesh.facesBack
 
-    # normalize inputs like your 2D intent
+    # normalize inputs like 2D intent
     # rad_bnd can be bool or array → broadcast to 6 faces [top, bottom, left, right, front(+z), back(-z)]
     rad_arr = np.array(rad_bnd, dtype=bool)
     if rad_arr.ndim == 0:
