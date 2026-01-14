@@ -1,4 +1,4 @@
-ENPH454 Thesis Project
+**ENPH454 Thesis Project**
 
 Simulating heat generation from particle beam irradiation in solid, rectangular materials.
 
