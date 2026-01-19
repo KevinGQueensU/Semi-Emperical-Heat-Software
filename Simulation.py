@@ -218,7 +218,7 @@ def heateq_solid_2d(
         rho: float,                 # Target material bulk density [kg/m^3]
         C_f: float | Callable[[float], float], # Heat capacity [J/(kg·K)]: can be static value or function Cp(T)
         k_f: float | Callable[[float], float], # Heat conductivity [W/(m·K)]: k(T): can be static value or function k(T)
-        t: float,               # Total simulation time [s]
+        t: float,                   # Total simulation time [s]
         T0: float = 298,            # OPTIONAL: Initial simulation temperature [K]
         SE = None,                  # OPTIONAL: Can give a pre-computed source energy term, otherwise it will compute it for you
         x_shift=None, y_shift=None, # OPTIONAL: How much to shift the origin by
@@ -335,27 +335,27 @@ def heateq_solid_2d(
         step += 1
 
 # FUNCTION: Simulate heat generation for a particle beam irradiating a solid in 3D.
-# Given boundary conditions and material properties.
+# Provide boundary conditions and material properties.
 def heateq_solid_3d(beam: Beam,
                     medium: Medium,
                     BC: BoundaryConditions,
-                    Lx: float, Ly: float, Lz: float,        # Dimensions of medium
-                    rho: float,             # Target material bulk density [kg/m^3]
-                    C_f: float | Callable[[float], float],  # Heat capacity [J/(kg·K)]: can be static value or function Cp(T)
-                    k_f: float | Callable[[float], float],  # Heat conductivity [W/(m·K)]: k(T): can be static value or function k(T)
-                    t: float,               # Total simulation time [s]
-                    T0: float = 298,        # OPTIONAL: Initial simulation temperature [K]
-                    SE=None,                # OPTIONAL: Can give a pre-computed source energy term, otherwise it will compute it for you
-                    x_shift=None, y_shift=None, z_shift = None,  # OPTIONAL: How much to shift the origin by
-                    alpha=0, beta=0,        # OPTIONAL: Beam divergence in y (alpha) and z (beta) directions
-                    dx: float = 1e-4, dy: float = 1e-4, dz: float = 1e-4,           # OPTIONAL: Cell widths and heights
-                    dt: float = 1e-3,       # OPTIONAL: Time interval between steps
-                    view: bool = False,     # OPTIONAL: Enable viewer?
-                    view_freq: int = 2,     # OPTIONAL: Update viewer every N steps
-                    dT_target: float = None,# OPTIONAL: Scale dt so that a specific dT between steps can be achieved
-                    dt_ramp: float = None,  # OPTIONAL: Scaling factor to ramp dt by every step
-                    dt_max: float = 1,      # OPTIONAL: Set a maximum value that dt can ramp to
-                    x_units: str = 'mm', y_units: str = 'mm', z_units: str = 'mm'  # OPTIONAL: Scale viewer axes to a specific unit
+                    Lx: float, Ly: float, Lz: float,         # Dimensions of medium
+                    rho: float,               # Target material bulk density [kg/m^3]
+                    C_f: float | Callable[[float], float],   # Heat capacity [J/(kg·K)]: can be static value or function Cp(T)
+                    k_f: float | Callable[[float], float],   # Heat conductivity [W/(m·K)]: k(T): can be static value or function k(T)
+                    t: float,                 # Total simulation time [s]
+                    T0: float = 298,          # OPTIONAL: Initial simulation temperature [K]
+                    SE = None,                # OPTIONAL: Can give a pre-computed source energy term, otherwise it will compute it for you
+                    x_shift = None, y_shift = None, z_shift: float = None,  # OPTIONAL: How much to shift the origin by
+                    alpha=0, beta: float = 0, # OPTIONAL: Beam divergence in y (alpha) and z (beta) directions
+                    dx = 1e-4, dy = 1e-4, dz: float = 1e-4,  # OPTIONAL: Cell widths and heights
+                    dt: float = 1e-3,        # OPTIONAL: Time interval between steps
+                    view: bool = False,      # OPTIONAL: Enable viewer?
+                    view_freq: int = 2,      # OPTIONAL: Update viewer every N steps
+                    dT_target: float = None, # OPTIONAL: Scale dt so that a specific dT between steps can be achieved
+                    dt_ramp: float = None,   # OPTIONAL: Scaling factor to ramp dt by every step
+                    dt_max: float = 1,       # OPTIONAL: Set a maximum value that dt can ramp to
+                    x_units = 'mm', y_units = 'mm', z_units: str = 'mm'  # OPTIONAL: Scale viewer axes to a specific unit
                     ):
     # Making mesh
     if x_shift is None: x_shift = 0
