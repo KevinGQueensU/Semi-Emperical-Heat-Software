@@ -208,7 +208,7 @@ class Medium:
     ## CONSTRUCTOR: Initializes the medium dimensions and material properties
     def __init__(self,
                  rho: float,          # Bulk density [g/cm^3]
-                 atoms: np.ndarray(Atom) | list(Atom) | tuple(Atom) | Atom,  # Constituent atoms that make up the material
+                 atoms: np.ndarray[np.object_] | list[Atom] | tuple[Atom] | Atom,  # Constituent atoms that make up the material
                  Lx: float, Ly: float, Lz: float, # Dimensions of medium
                  dEdx_filename: str,  # SRIM file for stopping powers
                  beam: Beam,          # Particle beam being shot into material

@@ -1,7 +1,7 @@
 import scipy as sp
 from Beam import Beam
 from Medium import Atom, Medium
-import simulation as sim
+import Simulation as sim
 import numpy as np
 import matplotlib.pyplot as plt
 from fipy.tools import numerix as nx
@@ -36,12 +36,13 @@ def k_f(T, k0=1.7, *, Tmin=160, Tmax=6000.0, kmin=1e-4, kmax=50.0):
     # keep operator strictly elliptic & avoid overflow
     return nx.clip(k, kmin, kmax)
 
+
 Z_Mg = 12
 A_Mg = 24.305  # g/mol
 Mg = Atom('Mg', Z_Mg, A_Mg, 0.2222, )
 
 Z_Fe = 26
-A_Fe = 	55.845 # g/mol
+A_Fe = 55.845  # g/mol
 Fe = Atom('Fe', Z_Fe, A_Fe, 0.2222)
 
 Z_Si = 14

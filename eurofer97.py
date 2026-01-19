@@ -1,10 +1,13 @@
 import scipy as sp
 from Beam import Beam
 from Medium import Atom, Medium
-import simulation as sim
+from BoundaryConditions import BoundaryConditions
+import Simulation as sim
 import numpy as np
 import matplotlib
+matplotlib.use("TkAgg")   # or "TkAgg" if you don't have Qt installed
 import matplotlib.pyplot as plt
+plt.ion()
 
 
 rho = 7.9255 # g/cm^3
@@ -170,12 +173,17 @@ if True:
 
     # Parameters for eurofer97
     rho *= 1e3  # kg/m^3
-    Ts, ts = sim.heateq_solid_3d_test(beam, medium, Lx, Ly, Lz, rho, Cp, k, 5,
-                        T0=298, T_amb=298, T0_faces=[273, 273, None, None, None, None],
-                        rad_bnd=[False, False, False, False, True, True], eps = 0.9,
-                        dx=dx, dy=dy, dz=dz, view=True,
-                        dT_target=500,
-                        dt=1e-5, dt_ramp=1.5)
+    BC = BoundaryConditions(['Fixed', 'Fixed', 'None', 'None', 'BBR', 'BBR'],
+                            273, 298, 0.9)
+
+    Ts, ts = sim.heateq_solid_3d(beam, medium, BC,
+                                 Lx, Ly, Lz,
+                                 rho, Cp, k,
+                                 5,
+                                 T0=298,
+                                 dx=dx, dy=dy, dz=dz, view=True,
+                                 dT_target=100,
+                                 dt=1e-5, dt_ramp=1.5)
     #%%
 
     plt.close()

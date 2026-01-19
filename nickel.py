@@ -1,7 +1,7 @@
 import scipy as sp
 from Beam import Beam
 from Medium import Atom, Medium
-import simulation as sim
+import Simulation as sim
 import numpy as np
 import matplotlib.pyplot as plt
 
