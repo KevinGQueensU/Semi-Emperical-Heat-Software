@@ -153,7 +153,7 @@ class Atom:
     def __init__(self,
                  name: str,     # Atomic symbol (or arbitrary)
                  Z: int,        # Atomic number
-                 A: int,        # Atomic mass (g/mol)
+                 A: float,        # Atomic mass (g/mol)
                  f,             # Atomic fraction of medium
                  sig_file = None,   # OPTIONAL filepath with cross-sections (p,x) (nuclear reactions)
                  E_conv = 1,        # OPTIONAL conversion factor for (p, x) energy values to get eV
@@ -210,9 +210,9 @@ class Medium:
                  rho: float,          # Bulk density [g/cm^3]
                  atoms: np.ndarray[np.object_] | list[Atom] | tuple[Atom] | Atom,  # Constituent atoms that make up the material
                  Lx: float, Ly: float, Lz: float, # Dimensions of medium
-                 dEdx_filename: str,  # SRIM file for stopping powers
-                 beam: Beam,          # Particle beam being shot into material
-                 x0: float = 0        # Starting location of Medium
+                 dEdx_filename: str,    # SRIM file for stopping powers
+                 x0: float = 0,         # Starting location of Medium
+                 name: str = None       # Medium name for plotting purposes
                  ):
 
         if isinstance(atoms, (list, tuple, np.ndarray)):
@@ -227,8 +227,8 @@ class Medium:
         self.Ly = Ly
         self.Lz = Lz
         self.x0 = x0
-        self.beam = beam
         self.filename = dEdx_filename
+        self.name = name
 
         self.A = Ly * Lz            # (y, z) cross-sectional area [m^2]
         self.P = 2*(Ly + Lz)        # (y, z) perimeter [m]

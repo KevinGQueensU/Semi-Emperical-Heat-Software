@@ -147,22 +147,17 @@ def region_index(x0s: np.ndarray[float] | list[float] | float, # x0s that separa
                  x: float                  # Position where you want to find the region its in
                  ) -> float:
     # x0 must be sorted (strictly increasing recommended)
+    x0s = np.asarray(x0s, dtype=float)
     m = len(x0s)
-    if m < 2:
-        # With fewer than 2 breakpoints, only "(x0[-1], +∞)" exists
-        return -1 if x <= x0s[-1] else 0
-
-    if x < x0s[0]:
-        return -1
-
-    i = bisect.bisect_left(x0s, x)  # index of first breakpoint >= x
-
-    if i == m - 1:
-        # x >= last breakpoint
-        return (m - 1) if x > x0s[-1] else (m - 2)
-    else:
-        # x in [x0[i], x0[i+1])
-        return i
+    if m == 0:
+        raise ValueError("x0s must contain at least one region start.")
+    # region start positions: choose last start <= x
+    i = bisect.bisect_right(x0s, x) - 1
+    if i < 0:
+        return 0
+    if i >= m:
+        return m - 1
+    return i
 
 # FUNCTION: Compute the energy deposition gradient at a specific point given a beam and target medium
 def compute_dEb_dx( x: float,        # Position to compute SE at (beam is fired along x-axis)
@@ -188,6 +183,7 @@ def compute_dEb_dx( x: float,        # Position to compute SE at (beam is fired 
     while True:
         if (dx > 0 and xi >= x) or (dx < 0 and xi <= x):
             break
+        med_i = region_index(x_med, xi)
 
         # Step everything
         dEdx = medium[med_i].get_dEdx(E_inst)
@@ -208,17 +204,17 @@ def compute_dEb_dx( x: float,        # Position to compute SE at (beam is fired 
 
 #### SIMULATION FUNCTIONS ####
 
-# FUNCTION: Simulate heat generation for a particle beam irradiating a solid in 2D.
-# Given boundary conditions and material properties.
+# FUNCTION: Simulate heat generation for a particle beam irradiating a solid material(s) in 2D.
+# Given boundary conditions and material(s) properties.
 def heateq_solid_2d(
         beam: Beam,
-        medium: Medium,
+        medium: Medium | list[Medium], # Supports connected materials
         BC: BoundaryConditions,
-        Lx: float, Ly: float,       # Dimensions of medium
-        rho: float,                 # Target material bulk density [kg/m^3]
-        C_f: float | Callable[[float], float], # Heat capacity [J/(kg·K)]: can be static value or function Cp(T)
-        k_f: float | Callable[[float], float], # Heat conductivity [W/(m·K)]: k(T): can be static value or function k(T)
-        t: float,               # Total simulation time [s]
+        Lx: float, Ly: float,          # Dimensions of simulation box
+        rho:  float | list[float],     # Target material(s) bulk density [kg/m^3]
+        C_f: float | list[float] | Callable[[float], float] | list[Callable[[float], float]], # Heat capacity [J/(kg·K)]: can be static value(s) or function(s) Cp(T)
+        k_f: float | list[float] | Callable[[float], float] | list[Callable[[float], float]], # Heat conductivity [W/(m·K)]: k(T): can be static value(s) or function(s) k(T)
+        t: float,                   # Total simulation time [s]
         T0: float = 298,            # OPTIONAL: Initial simulation temperature [K]
         SE = None,                  # OPTIONAL: Can give a pre-computed source energy term, otherwise it will compute it for you
         x_shift=None, y_shift=None, # OPTIONAL: How much to shift the origin by
@@ -233,10 +229,31 @@ def heateq_solid_2d(
         x_units: str = 'mm', y_units: str = 'mm' # OPTIONAL: Scale viewer axes to a specific unit
         ):
 
+    # If only single material given, make it a list for ease of use later
+    if not np.iterable(medium):
+        medium = [medium]
+    if not np.iterable(C_f):
+        C_f = [C_f]
+    if not np.iterable(k_f):
+        k_f = [k_f]
+    if not np.iterable(rho):
+        rho = [rho]
+
+    # Make sure the user provided the correct number of material properties
+    lengths = {len(medium), len(C_f), len(k_f), len(rho)}
+    if len(lengths) != 1:
+        raise ValueError(
+            f"Inconsistent input lengths:\n"
+            f"  # Mediums: {len(medium)}\n"
+            f"  # Bulk Densities:    {len(rho)}"
+            f"  # Heat Capacities:    {len(C_f)}\n"
+            f"  # Heat Conductivities:    {len(k_f)}\n"
+        )
+
     # Create the mesh
-    nx_cells = int(nx.round(Lx / dx))
-    ny_cells = int(nx.round(Ly / dy))
-    mesh = Grid2D(dx=dx, dy=dy, nx=nx_cells, ny=ny_cells)
+    nx = int(round(Lx / dx))
+    ny = int(round(Ly / dy))
+    mesh = Grid2D(dx=dx, dy=dy, nx=nx, ny=ny)
     if x_shift is None:
         x_shift = 0
     if y_shift is None:
@@ -245,46 +262,88 @@ def heateq_solid_2d(
     mesh += ((x_shift,), (y_shift,))  # shift mesh
     cx = mesh.cellCenters[0].value
     cy = mesh.cellCenters[1].value
-    CX = cx.reshape((nx_cells, ny_cells), order='F')  # shape (nx, ny)
-    CY = cy.reshape((nx_cells, ny_cells), order='F')
+    CX = cx.reshape((nx, ny), order='F')  # shape (nx, ny)
+    CY = cy.reshape((nx, ny), order='F')
+
+    # Mask regions of the mesh for each medium
+    x = mesh.cellCenters[0]
+    masks = []
+    for i, med in enumerate(medium):
+        xL = med.x0
+        xR = medium[i + 1].x0 if i + 1 < len(medium) else (med.x0 + med.Lx)
+        masks.append((x >= xL) & (x < xR))
 
     # Compute SE if not given
     if SE is None:
         cj = CX[:, 0]
         dEb_dx = np.zeros_like(cj)  # eV/(m·s)
 
-        for l in range(nx_cells - 1):
+        for l in range(nx - 1):
             dEb_dx[l] = compute_dEb_dx(cj[l], cj[0], dx, beam, medium)
         dEb_dx *= 1.602176634e-19  # ev to J
-        plt.plot(cj, dEb_dx)
+        plt.plot(cj, dEb_dx, 'bo')
         plt.show()
         phi_free = np.array(beam.PD(CX, CY, 0, alpha, beta))
 
         SE = dEb_dx[:, None] * phi_free * 1 / (beam.E_0 * beam.I_0)
         SE = SE.reshape(-1, order='F')
 
+    # Create FiPy variables
     T0 = float(T0)
     SE = CellVariable(mesh=mesh, value=SE, name=r"$S_{E}$")
     T = CellVariable(mesh=mesh, value=T0, name="Temperature [K]", hasOld=True)
+    rhoC = CellVariable(mesh=mesh, name="rho*C", value = 1.0)
+    k_cell = CellVariable(mesh=mesh, name="k(T)", value = 1.0)
 
-    rhoC = CellVariable(mesh=mesh, name="rho*C", value=rho * float(C_f(T0)))
-    k_cell = CellVariable(mesh=mesh, name="k(T)", value=float(k_f(T0)))
-
+    # FUNCTION: Compute the updated material properties
     def _refresh_material_props():
-        Cp_val = C_f(T)   # J/(kg·K)
-        k_val  = k_f(T)   # W/(m·K)
-        rhoC.setValue(rho * Cp_val)
-        k_cell.setValue(k_val)
+        for i, mask in enumerate(masks):
+            Cp_val = C_f[i](T) if callable(C_f[i]) else C_f[i]
+            k_val = k_f[i](T) if callable(k_f[i]) else k_f[i]
+            rhoC.setValue(rho[i] * Cp_val, where=mask)
+            k_cell.setValue(k_val, where=mask)
+
 
     _refresh_material_props()
+    k_face = k_cell.harmonicFaceValue # Important to make sure flux and temperature are ~equal between regions
+    eq = TransientTerm(coeff=rhoC) == DiffusionTerm(coeff=k_face) + SE
 
-    eq = TransientTerm(coeff=rhoC) == DiffusionTerm(coeff=k_cell) + SE
-
-
-    viewer = None
     if view:
         try:
             viewer = Viewer(vars=(T,), title="Temperature Distribution")
+            ax = viewer.axes
+
+            # Get extents of coordinates
+            y_min = mesh.cellCenters[1].min()
+            y_max = mesh.cellCenters[1].max()
+            y_text = y_min + 0.03 * (y_max - y_min)  # small offset from bottom
+
+            # Loop over regions, label each one by their name
+            for i, med in enumerate(medium):
+                ax.axvline(med.x0, ls = '--', color = 'k', lw = 1) # seperator
+                if med.name is None:
+                    continue
+
+                # Region boundaries
+                x_left = med.x0
+                if i < len(medium) - 1:
+                    x_right = medium[i + 1].x0
+                else:
+                    x_right = mesh.cellCenters[0].max()
+
+                x_mid = 0.5 * (x_left + x_right)
+
+                ax.text(
+                    x_mid,
+                    y_text,
+                    med.name,
+                    ha='center',
+                    va='bottom',
+                    fontsize=11,
+                    color='gray',
+                    alpha=0.8,
+                    transform=ax.transData
+                )
         except Exception:
             viewer = None
 
@@ -292,6 +351,7 @@ def heateq_solid_2d(
     step = 0
 
     while t_elapsed < t:
+        # Update variables and values
         T.updateOld()
         _refresh_material_props()
         T_old = T.value.copy()
@@ -309,6 +369,7 @@ def heateq_solid_2d(
         else:
             eq.solve(var=T, dt=dt, boundaryConditions= bcs)
 
+        # Increment time variably
         t_elapsed += dt
         if (dt_ramp is not None and dt < dt_max):
             dt *= dt_ramp
@@ -319,10 +380,12 @@ def heateq_solid_2d(
 
         # Troubleshooting stuff
         if (step % max(1, view_freq)) == 0:
-            Tamb = float(BC.T_amb)
-            err = float(np.max(np.abs(T.value - Tamb)))
-            print(f"t={t_elapsed:.3f}s  Tmax={T.value.max():.6f}  Tmin={T.value.min():.6f}  max|T-Tamb|={err:.6e}")
+            if(BC.T_amb is not None):
+                Tamb = float(BC.T_amb)
+                err = float(np.max(np.abs(T.value - Tamb)))
+                print(f"t={t_elapsed:.3f}s  Tmax={T.value.max():.6f}  Tmin={T.value.min():.6f}  max|T-Tamb|={err:.6e}")
 
+        # Display simulation
         if viewer is not None:
             Tmin = float(T.value.min())
             Tmax = float(T.value.max())
@@ -332,7 +395,7 @@ def heateq_solid_2d(
                                   x_label="x", y_label="y",
                                   decimals=4)
             viewer.plot()
-        step += 1
+        step += 1 # For viewing frequency
 
 # FUNCTION: Simulate heat generation for a particle beam irradiating a solid in 3D.
 # Given boundary conditions and material properties.

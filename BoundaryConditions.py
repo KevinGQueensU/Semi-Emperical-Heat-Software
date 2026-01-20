@@ -13,9 +13,9 @@ class BoundaryConditions:
     def __init__(self,
                 types: np.ndarray[str],                 # Specify type for each face. Formatted as [top, bottom, left, right] (2D)
                                                         # or [top, bottom, left, right, front, back] (3D)
-                 T0: np.ndarray[float] | float,         # The initial temperature(s) for each face [K]
-                 T_amb: float | None = None,            # The ambient temperature(s) for BBR
-                 eps: np.ndarray[float] | float = 1,    # BBR emissivity coefficient(s) [0, 1]
+                 T0: float | np.ndarray[float] | None = None,       # The initial temperature(s) for each fixed face [K]
+                 T_amb: float | np.ndarray[float] | None = None,    # The ambient temperature(s) for BBR
+                 eps: float | np.ndarray[float] = 1,    # BBR emissivity coefficient(s) [0, 1]
                  ) -> None:
 
         # Test cases

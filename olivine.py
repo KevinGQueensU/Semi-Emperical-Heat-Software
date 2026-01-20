@@ -2,6 +2,7 @@ import scipy as sp
 from Beam import Beam
 from Medium import Atom, Medium
 import Simulation as sim
+from BoundaryConditions import BoundaryConditions
 import numpy as np
 import matplotlib.pyplot as plt
 from fipy.tools import numerix as nx
@@ -71,7 +72,7 @@ Lz = Ly
 medium = Medium(rho, [Mg, Fe, Si, O], Lx, Ly, Lz,"Olivine//Hydrogen in Olivine.txt", beam)
 
 #%%
-if True:
+if False:
     xk = np.linspace(0, Lx, 10000) # cell edges
     cell_width = xk[1] - xk[0]
     cj = 0.5*(xk[:-1] + xk[1:]) # cell centers
@@ -133,53 +134,53 @@ if True:
     plt.plot(xk * 1e3, E_beam[1:] * 1e-6)
     plt.show()
 #%%
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
+    from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 
-fig, ax1 = plt.subplots()
-plt.xlim(-10, 2000)
+    fig, ax1 = plt.subplots()
+    plt.xlim(-10, 2000)
 
-Se_elec = medium.Se_elec * 1e-6
-Se_nucl = medium.Se_nucl * 1e-6
-Es = medium.Es * 1e-3  # MeV
+    Se_elec = medium.Se_elec * 1e-6
+    Se_nucl = medium.Se_nucl * 1e-6
+    Es = medium.Es * 1e-3  # MeV
 
-# Main plot (energy axis)
-ax1.plot(Es[:-1], Se_elec, 'b--', label='Electronic Stopping')
-ax1.plot(Es[:-1], Se_nucl, 'r--', label='Nuclear Stopping')
-ax1.plot(0, 0, 'black', label='Full Stopping Power')
-ax1.set_xlabel('Energy [keV]', size='x-large')
-ax1.set_ylabel(r'Stopping Power $[\frac{\mathrm{keV}}{\mathrm{mm}}]$', size='x-large')
-ax1.legend(loc='lower right')
+    # Main plot (energy axis)
+    ax1.plot(Es[:-1], Se_elec, 'b--', label='Electronic Stopping')
+    ax1.plot(Es[:-1], Se_nucl, 'r--', label='Nuclear Stopping')
+    ax1.plot(0, 0, 'black', label='Full Stopping Power')
+    ax1.set_xlabel('Energy [keV]', size='x-large')
+    ax1.set_ylabel(r'Stopping Power $[\frac{\mathrm{keV}}{\mathrm{mm}}]$', size='x-large')
+    ax1.legend(loc='lower right')
 
-# Second x-axis (depth)
-ax2 = ax1.twiny()
-ax2.set_xlim(-0.05, 0.4)
-ax2.set_xlabel('Depth [mm]', size='x-large')
-ax2.plot(xk * 1e3, -dEdx * 1e-6/medium.N_tot, 'black')
+    # Second x-axis (depth)
+    ax2 = ax1.twiny()
+    ax2.set_xlim(-0.05, 0.4)
+    ax2.set_xlabel('Depth [mm]', size='x-large')
+    ax2.plot(xk * 1e3, -dEdx * 1e-6/medium.N_tot, 'black')
 
-# ----------------- ZOOMED INSET ON NUCLEAR -----------------
-# Choose energy window you want to zoom on (e.g. low energy region)
-E1, E2 = 0.0, 1.0  # MeV, adjust as needed
+    # ----------------- ZOOMED INSET ON NUCLEAR -----------------
+    # Choose energy window you want to zoom on (e.g. low energy region)
+    E1, E2 = 0.0, 1.0  # MeV, adjust as needed
 
-mask = (Es[:-1] >= E1) & (Es[:-1] <= E2)
+    mask = (Es[:-1] >= E1) & (Es[:-1] <= E2)
 
-# Create inset axis inside ax1
-axins = inset_axes(ax1, width="35%", height="35%", loc="center")
+    # Create inset axis inside ax1
+    axins = inset_axes(ax1, width="35%", height="35%", loc="center")
 
-# Plot only the nuclear (and optionally electronic) in the inset
-axins.plot(Es[:-1][mask], Se_nucl[mask], 'r--', label='Nuclear')
-axins.set_xlim(-0.03, 0.05)
-axins.set_ylim(Se_nucl[mask].min(), Se_nucl[mask].max()*1.1)
+    # Plot only the nuclear (and optionally electronic) in the inset
+    axins.plot(Es[:-1][mask], Se_nucl[mask], 'r--', label='Nuclear')
+    axins.set_xlim(-0.03, 0.05)
+    axins.set_ylim(Se_nucl[mask].min(), Se_nucl[mask].max()*1.1)
 
-# Clean up ticks if you want a minimalist zoom box
-axins.set_xticks([])
-axins.set_yticks([])
+    # Clean up ticks if you want a minimalist zoom box
+    axins.set_xticks([])
+    axins.set_yticks([])
 
-# Draw a rectangle + connectors showing which region is zoomed
-mark_inset(ax1, axins, loc1=2, loc2=3, fc="none", ec="0.5")
-# -----------------------------------------------------------
+    # Draw a rectangle + connectors showing which region is zoomed
+    mark_inset(ax1, axins, loc1=2, loc2=3, fc="none", ec="0.5")
+    # -----------------------------------------------------------
 
-fig.tight_layout()
-plt.show()
+    fig.tight_layout()
+    plt.show()
 #%%
 # SHOWING BLACKBODY RADIATION
 if False:
@@ -207,11 +208,12 @@ if False:
                         dt = 1e-6, dt_ramp = 1.5, dt_max = 1, x_units = 'mm', y_units = 'mm')
 
 # 2D BB Radiation
-if False:
+if True:
     Lx = 10e-6
     dx = 0.05e-6
     Ly = 10e-6
     dy = 0.1e-6
+    Lz = Ly
     # Parameters for the beam and values
     I_0 = 6.24 * 1e11  # [s^-1]
     E_0 = 1e6  # [MeV]
@@ -239,19 +241,17 @@ if False:
     A_O = 15.999  # g/mol
     O = Atom('Mg', Z_O, A_O, 0.4444)
 
-    rho = 3.3  # g/cm^3
+    rho = 3.3e3  # kg/m^3
     n = 9.8e23 * 1e6  # 1/m^3
-    W = H = 10e-6  # 10 mm square slab
-    A_xsec = W * H
-    P_perim = 2 * (W + H)
-    medium = Medium(n, rho, [Mg, Fe, Si, O], Lx, A_xsec, P_perim, "Ni//Stopping_Power//H.txt", beam,
+    W = H = 10e-6  # 10 mm square slab\
+
+    medium = Medium(rho, [Mg, Fe, Si, O], Lx, Ly, Lz, "Ni//Stopping_Power//H.txt", beam,
                     x0=x0)
 
-    # Parameters for
-    rho *= 1e3  # kg/m^3
-    C = 850  # J/(kg*K)
-    k = 1.7  # W/m*K
-
-    sim.heateq_solid_2d(beam, medium, Lx, Ly, rho, C, k, 1000,
-                                 T0 = 1, T0_faces = 1, rad_bnd = True,
-                                 dx=dx, dy=dy, dt=0.000001, view=True, view_freq = 0.0001, res = 1e-9)
+    BC = BoundaryConditions(['Fixed', 'Fixed', 'BBR', 'BBR'],
+                            273, 298, 0.9)
+    sim.heateq_solid_2d(beam, medium, BC,
+                        Lx, Ly, rho,
+                        C_f, k_f, 1000,
+                         T0 = 298,
+                         dx=dx, dy=dy, dT_target = 10, view=True, view_freq = 1)
