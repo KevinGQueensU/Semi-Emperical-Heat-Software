@@ -3,6 +3,39 @@ from Medium import Atom, Medium
 from BoundaryConditions import BoundaryConditions
 import Simulation as sim
 
+def C_lead(T):
+    if(T < 600.6):
+        A = 25.01450
+        B = 5.441836
+        C = 4.061367
+        D = -1.236217
+        E = -0.010657
+    elif(T < 2019.022):
+        A = 38.00449
+        B = -14.62249
+        C = 7.255475
+        D = -1.033370
+        E = -0.3309775
+    else:
+        t = 2019.022
+        A = 38.00449
+        B = -14.62249
+        C = 7.255475
+        D = -1.033370
+        E = -0.3309775
+        return A + B*t + C*t**2 + D*t**3 + E/(t**2)
+    return A + B*T + C*T**2 + D*T**3 + E/(T**2)
+
+# https://link.springer.com/article/10.1007/BF00514474
+# https://inis.iaea.org/records/n4gzz-mpp69
+def k_lead(T):
+    if(T < 600.6):
+        return 39.7 - 0.0138*T
+    elif(T < 1300):
+        return 9.15 + 0.0114*T
+    else:
+        return 9.15 + 0.0114*1300
+
 I_0 = 6.24 * 1e9  # [s^-1]
 E_0 = 400e6  # [MeV]
 r = 0.5e-5  # m
@@ -48,7 +81,7 @@ ks = [k_Pb, k_Ni, k_Pb]
 Lx = Lx_Ni/2 + Lx_Ni + Lx_Ni*2
 Ly = Ly_Pb
 Lz = Lz_Pb
-dx = 1e-6
+dx = 1e-7
 dy = 2e-6
 BC = BoundaryConditions(['Fixed', 'Fixed', 'Fixed', 'BBR'],
                         273, 298)

@@ -3,7 +3,7 @@ import re
 import scipy.constants
 import scipy.integrate
 import scipy.interpolate as interpolate
-from Beam import Beam
+from collections.abc import Callable
 
 # CONVERSION FACTORS TO eV
 E_TO_EV = {"ev": 1,
@@ -207,13 +207,15 @@ class Medium:
 
     ## CONSTRUCTOR: Initializes the medium dimensions and material properties
     def __init__(self,
-                 rho: float,          # Bulk density [g/cm^3]
+                 rho: float,                    # Bulk density [kg/m^3]
+                 C: float | Callable[[float], float],    # Heat Capacity [J/(kg*K)]
+                 k: float | Callable[[float], float],    # Heat conductivity [W/(m*K)]
                  atoms: np.ndarray[np.object_] | list[Atom] | tuple[Atom] | Atom,  # Constituent atoms that make up the material
                  Lx: float, Ly: float, Lz: float, # Dimensions of medium
                  dEdx_filename: str,    # SRIM file for stopping powers
                  x0: float = 0,         # Starting location of Medium
                  name: str = None       # Medium name for plotting purposes
-                 ):
+                 ) -> None:
 
         if isinstance(atoms, (list, tuple, np.ndarray)):
             self.atoms = np.array(list(atoms), dtype=object).reshape(-1)
@@ -223,6 +225,8 @@ class Medium:
 
         # Defining parameters
         self.rho = rho
+        self.C = C
+        self.k = k
         self.Lx = Lx
         self.Ly = Ly
         self.Lz = Lz
@@ -250,7 +254,7 @@ class Medium:
         M_bar = sum(a.f * a.A for a in self.atoms)
 
         # Calculate total number density N
-        self.N_tot = (self.rho / M_bar) * scipy.constants.N_A * 1e6   # atoms/m^3
+        self.N_tot = (self.rho*1e-3 / M_bar) * scipy.constants.N_A * 1e6   # atoms/m^3
 
         # Store number density fraction for each atom in a dict.
         self.Nd = {a: a.f * self.N_tot for a in self.atoms} # atoms/m^3
@@ -339,7 +343,17 @@ class Medium:
     def get_dEdx(self, E):
         return -self.get_Se_ev_m(E)  # eV/(m·s)
 
+    def get_C(self, T):
+        if(callable(self.C)):
+            return self.C(T)
+        else:
+            return self.C
 
+    def get_k(self, T):
+        if(callable(self.k)):
+            return self.k(T)
+        else:
+            return self.k
 
     # IGNORE THIS
     def _Ed_fwd_test(self, cj, x_fwd, dx, E, I):

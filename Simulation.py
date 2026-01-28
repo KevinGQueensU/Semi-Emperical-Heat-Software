@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  (needed for 3D)
 from fipy import CellVariable, Grid2D, Grid3D, TransientTerm, DiffusionTerm, Viewer
-from fipy.tools import numerix as nx
 _SIGMA_SB = 5.670374419e-8  # Stefan–Boltzmann constant [W/(m^2·K^4)]
 
 #### HELPER FUNCTIONS ####
@@ -192,14 +191,16 @@ def compute_dEb_dx( x: float,        # Position to compute SE at (beam is fired 
         I_beam = I_beam + dIdx * dx
         E_beam = max(E_beam + dEdx_beam * dx, 0)
         E_inst = E_beam / I_beam
+        if xi == x_ref:  # Just print the first step of each integration
+            print(f"DEBUG: Entering cell at x={xi:.2e}, E_inst={E_inst:.2e} eV, dEdx={dEdx:.2e} eV/m")
         xi += dx
-
+        # Inside compute_dEb_dx while loop
         if E_inst <= 0.0:
             break
 
     dEdx = medium[med_i].get_dEdx(E_inst)
 
-    return -(I_beam * dEdx)     # Energy deposition per length [eV/(m*s)]
+    return -(I_beam * dEdx), E_inst     # Energy deposition per length [eV/(m*s)]
 
 
 #### SIMULATION FUNCTIONS ####
@@ -210,17 +211,7 @@ def heateq_solid_2d(
         beam: Beam,
         medium: Medium | list[Medium], # Supports connected materials
         BC: BoundaryConditions,
-<<<<<<< HEAD:simulation.py
-        Lx: float, Ly: float,          # Dimensions of simulation box
-        rho:  float | list[float],     # Target material(s) bulk density [kg/m^3]
-        C_f: float | list[float] | Callable[[float], float] | list[Callable[[float], float]], # Heat capacity [J/(kg·K)]: can be static value(s) or function(s) Cp(T)
-        k_f: float | list[float] | Callable[[float], float] | list[Callable[[float], float]], # Heat conductivity [W/(m·K)]: k(T): can be static value(s) or function(s) k(T)
-=======
-        Lx: float, Ly: float,       # Dimensions of medium
-        rho: float,                 # Target material bulk density [kg/m^3]
-        C_f: float | Callable[[float], float], # Heat capacity [J/(kg·K)]: can be static value or function Cp(T)
-        k_f: float | Callable[[float], float], # Heat conductivity [W/(m·K)]: k(T): can be static value or function k(T)
->>>>>>> 74d9ef33921d8f58acf84cfcb0b6c82152d67189:Simulation.py
+        Ly: float,                         # Define the height and width of the sim box (NO SUPPORT FOR MATERIALS OF DIFFERENT HEIGHTS)
         t: float,                   # Total simulation time [s]
         T0: float = 298,            # OPTIONAL: Initial simulation temperature [K]
         SE = None,                  # OPTIONAL: Can give a pre-computed source energy term, otherwise it will compute it for you
@@ -239,24 +230,9 @@ def heateq_solid_2d(
     # If only single material given, make it a list for ease of use later
     if not np.iterable(medium):
         medium = [medium]
-    if not np.iterable(C_f):
-        C_f = [C_f]
-    if not np.iterable(k_f):
-        k_f = [k_f]
-    if not np.iterable(rho):
-        rho = [rho]
-
-    # Make sure the user provided the correct number of material properties
-    lengths = {len(medium), len(C_f), len(k_f), len(rho)}
-    if len(lengths) != 1:
-        raise ValueError(
-            f"Inconsistent input lengths:\n"
-            f"  # Mediums: {len(medium)}\n"
-            f"  # Bulk Densities:    {len(rho)}"
-            f"  # Heat Capacities:    {len(C_f)}\n"
-            f"  # Heat Conductivities:    {len(k_f)}\n"
-        )
-
+    Lx = 0
+    for med in medium:
+        Lx += med.Lx
     # Create the mesh
     nx = int(round(Lx / dx))
     ny = int(round(Ly / dy))
@@ -284,11 +260,15 @@ def heateq_solid_2d(
     if SE is None:
         cj = CX[:, 0]
         dEb_dx = np.zeros_like(cj)  # eV/(m·s)
+        E_inst = np.zeros_like(cj)
 
         for l in range(nx - 1):
-            dEb_dx[l] = compute_dEb_dx(cj[l], cj[0], dx, beam, medium)
+            dEb_dx[l], E_inst[l] = compute_dEb_dx(cj[l], cj[0], dx, beam, medium)
+
         dEb_dx *= 1.602176634e-19  # ev to J
         plt.plot(cj, dEb_dx, 'bo')
+        plt.show()
+        plt.plot(cj, E_inst, 'bo')
         plt.show()
         phi_free = np.array(beam.PD(CX, CY, 0, alpha, beta))
 
@@ -299,25 +279,41 @@ def heateq_solid_2d(
     T0 = float(T0)
     SE = CellVariable(mesh=mesh, value=SE, name=r"$S_{E}$")
     T = CellVariable(mesh=mesh, value=T0, name="Temperature [K]", hasOld=True)
-    rhoC = CellVariable(mesh=mesh, name="rho*C", value = 1.0)
-    k_cell = CellVariable(mesh=mesh, name="k(T)", value = 1.0)
 
-    # FUNCTION: Compute the updated material properties
-    def _refresh_material_props():
-        for i, mask in enumerate(masks):
-            Cp_val = C_f[i](T) if callable(C_f[i]) else C_f[i]
-            k_val = k_f[i](T) if callable(k_f[i]) else k_f[i]
-            rhoC.setValue(rho[i] * Cp_val, where=mask)
-            k_cell.setValue(k_val, where=mask)
+    rhoC = CellVariable(mesh=mesh, name="rhoC", value=1.0)
+    k_cell = CellVariable(mesh=mesh, name="k", value=1.0)
 
+    # Define the manual update function
+    def _manual_refresh_props():
+        # We use .value to get the current temperature array
+        current_T = T.value
 
-    _refresh_material_props()
-    k_face = k_cell.harmonicFaceValue # Important to make sure flux and temperature are ~equal between regions
+        # Initialize temp arrays
+        new_rhoC = np.zeros(mesh.numberOfCells)
+        new_k = np.zeros(mesh.numberOfCells)
+
+        for i, med in enumerate(medium):
+            # We evaluate the material functions using the CURRENT temperature
+            # Note: If your med.get_C expects a FiPy variable, pass T.
+            # If it expects a numpy array, pass current_T.
+            cp_vals = med.get_C(current_T)
+            k_vals = med.get_k(current_T)
+
+            # Use the mask (convert to numpy boolean) to fill the arrays
+            m = np.array(masks[i])
+            new_rhoC[m] = med.rho * cp_vals[m]
+            new_k[m] = k_vals[m]
+
+        # Push the values back into the FiPy variables
+        rhoC.setValue(new_rhoC)
+        k_cell.setValue(new_k)
+
+    k_face = k_cell.harmonicFaceValue
     eq = TransientTerm(coeff=rhoC) == DiffusionTerm(coeff=k_face) + SE
 
     if view:
         try:
-            viewer = Viewer(vars=(T,), title="Temperature Distribution")
+            viewer = Viewer(vars=(T,), title="Temperature Distribution", datamin = 273, datamax = 2000)
             ax = viewer.axes
 
             # Get extents of coordinates
@@ -360,21 +356,32 @@ def heateq_solid_2d(
     while t_elapsed < t:
         # Update variables and values
         T.updateOld()
-        _refresh_material_props()
         T_old = T.value.copy()
         bcs = BC.update(mesh, T)
 
-        if dT_target is not None:
-            while True:
-                eq.solve(var=T, dt=dt, boundaryConditions = bcs)
+        retry = True
+        while retry:
+            # Attempt to solve
+            res = 1e10
+            inner_steps = 0
+            # Sweep loop for nonlinearity
+            while res > 1e-3 and inner_steps < 5:
+                _manual_refresh_props()
+                res = eq.sweep(var=T, dt=dt, boundaryConditions=bcs)
+                inner_steps += 1
+
+            # Check if dT target is violated
+            if dT_target is not None:
                 dT_inf = np.max(np.abs(T.value - T_old))
+
                 if dT_inf > dT_target:
-                    print("Time step too large for required dT, reducing by 50%")
+                    print(f"dT ({dT_inf:.2f}K) > target. Retrying with dt/2.")
                     dt *= 0.5
-                else:
-                    break
-        else:
-            eq.solve(var=T, dt=dt, boundaryConditions= bcs)
+                    T.setValue(T_old)  # RESET T BEFORE RETRYING!
+                    continue  # Restart the 'while retry' loop
+
+            # If we get here, the step was successful
+            retry = False
 
         # Increment time variably
         t_elapsed += dt
@@ -405,27 +412,27 @@ def heateq_solid_2d(
         step += 1 # For viewing frequency
 
 # FUNCTION: Simulate heat generation for a particle beam irradiating a solid in 3D.
-# Provide boundary conditions and material properties.
+# Given boundary conditions and material properties.
 def heateq_solid_3d(beam: Beam,
                     medium: Medium,
                     BC: BoundaryConditions,
-                    Lx: float, Ly: float, Lz: float,         # Dimensions of medium
-                    rho: float,               # Target material bulk density [kg/m^3]
-                    C_f: float | Callable[[float], float],   # Heat capacity [J/(kg·K)]: can be static value or function Cp(T)
-                    k_f: float | Callable[[float], float],   # Heat conductivity [W/(m·K)]: k(T): can be static value or function k(T)
-                    t: float,                 # Total simulation time [s]
-                    T0: float = 298,          # OPTIONAL: Initial simulation temperature [K]
-                    SE = None,                # OPTIONAL: Can give a pre-computed source energy term, otherwise it will compute it for you
-                    x_shift = None, y_shift = None, z_shift: float = None,  # OPTIONAL: How much to shift the origin by
-                    alpha=0, beta: float = 0, # OPTIONAL: Beam divergence in y (alpha) and z (beta) directions
-                    dx = 1e-4, dy = 1e-4, dz: float = 1e-4,  # OPTIONAL: Cell widths and heights
-                    dt: float = 1e-3,        # OPTIONAL: Time interval between steps
-                    view: bool = False,      # OPTIONAL: Enable viewer?
-                    view_freq: int = 2,      # OPTIONAL: Update viewer every N steps
-                    dT_target: float = None, # OPTIONAL: Scale dt so that a specific dT between steps can be achieved
-                    dt_ramp: float = None,   # OPTIONAL: Scaling factor to ramp dt by every step
-                    dt_max: float = 1,       # OPTIONAL: Set a maximum value that dt can ramp to
-                    x_units = 'mm', y_units = 'mm', z_units: str = 'mm'  # OPTIONAL: Scale viewer axes to a specific unit
+                    Lx: float, Ly: float, Lz: float,        # Dimensions of medium
+                    rho: float,             # Target material bulk density [kg/m^3]
+                    C_f: float | Callable[[float], float],  # Heat capacity [J/(kg·K)]: can be static value or function Cp(T)
+                    k_f: float | Callable[[float], float],  # Heat conductivity [W/(m·K)]: k(T): can be static value or function k(T)
+                    t: float,               # Total simulation time [s]
+                    T0: float = 298,        # OPTIONAL: Initial simulation temperature [K]
+                    SE=None,                # OPTIONAL: Can give a pre-computed source energy term, otherwise it will compute it for you
+                    x_shift=None, y_shift=None, z_shift = None,  # OPTIONAL: How much to shift the origin by
+                    alpha=0, beta=0,        # OPTIONAL: Beam divergence in y (alpha) and z (beta) directions
+                    dx: float = 1e-4, dy: float = 1e-4, dz: float = 1e-4,           # OPTIONAL: Cell widths and heights
+                    dt: float = 1e-3,       # OPTIONAL: Time interval between steps
+                    view: bool = False,     # OPTIONAL: Enable viewer?
+                    view_freq: int = 2,     # OPTIONAL: Update viewer every N steps
+                    dT_target: float = None,# OPTIONAL: Scale dt so that a specific dT between steps can be achieved
+                    dt_ramp: float = None,  # OPTIONAL: Scaling factor to ramp dt by every step
+                    dt_max: float = 1,      # OPTIONAL: Set a maximum value that dt can ramp to
+                    x_units: str = 'mm', y_units: str = 'mm', z_units: str = 'mm'  # OPTIONAL: Scale viewer axes to a specific unit
                     ):
     # Making mesh
     if x_shift is None: x_shift = 0
