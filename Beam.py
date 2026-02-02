@@ -16,9 +16,12 @@ class Beam:
                  sig_ga_y0: float = 0,  sig_ga_z0: float = 0, # OPTIONAL Initial Gaussian beam STD along y and z directions
                  sig_an_y0: float = 0, sig_an_z0: float = 0,  # OPTIONAL Initial Gaussian Annular beam STD along y and z directions
                  mu_y0: float = 0,  mu_z0: float = 0,         # OPTIONAL Initial Gaussian Annular beam mean along y and z directions
-                 type: str = 'Gaussian'    # OPTIONAL Type of beam, default is Gaussian
+                 type: str = 'Gaussian',    # OPTIONAL Type of beam, default is Gaussian
+                 dim: float = 2             # OPTIONAL: is beam 2D or 3D
                  ):
         # TEST: Make sure the defined beam type is valid
+        if not (dim == 2 or dim == 3):
+            raise ValueError("Beam can only be 2 or 3 dimensional")
         if type not in self.TYPES:
             raise ValueError(f"Invalid Type: Must be Gaussian or Annular or Both")
 
@@ -39,6 +42,7 @@ class Beam:
         self.P_0 = E_0 * I_0 # initial power, eV/s
         self.A = A
         self.Z = Z
+        self.dim = dim
 
         self.frac_gauss = frac_gauss
         self.frac_ann = 1 - frac_gauss # f_gauss + f_ann SHOULD ALWAYS ADD UP TO 1
@@ -63,11 +67,10 @@ class Beam:
 
         # Calculate Gaussian power density
         if self.type == 'Gaussian' or self.type == 'Both':
-            fp = self.P_0 /(2*np.pi*sig_ga_y*sig_ga_z) # prefactor
-            fy = np.exp(-y**2/(2*sig_ga_y**2)) # y spread
-            fz = np.exp(-z ** 2 / (2 * sig_ga_z ** 2)) # z spread
+            fy = (1/(np.sqrt(2*np.pi)*sig_ga_y))*np.exp(-y ** 2 / (2 * sig_ga_y**2)) # y spread
+            fz = (1/(np.sqrt(2*np.pi)*sig_ga_z))*np.exp(-z ** 2 / (2 * sig_ga_z ** 2)) # z spread
 
-            PD_gauss = fp * fy * fz
+            PD_gauss = self.P_0 * fy if self.dim == 2 else self.P_0 * fy * fz
 
         # Calculate Annular Gaussian power density
         if self.type == 'Annular' or self.type == 'Both':
@@ -78,11 +81,11 @@ class Beam:
             sig_an_z = self.sig_an_z0*(mu_z/self.mu_z0)
 
             fp_denom = 1 + np.sqrt(np.pi/2 * (mu_y*mu_z/(sig_an_y*sig_an_z))) # denom term
-            fp = self.P_0 / (2 * np.pi * sig_an_y * sig_an_z * fp_denom) # full prefactor
-            fy = np.exp(-y**2/(2*sig_an_y**2)) # y spread
-            fz = np.exp(-z**2/(2 * sig_an_z ** 2)) # z spread
+            fp = self.P_0 / (2 * np.pi * fp_denom) # full prefactor
+            fy = (1/sig_an_y)*np.exp(-y**2/(2*sig_an_y**2)) # y spread
+            fz = (1/sig_an_z)*np.exp(-z**2/(2 * sig_an_z ** 2)) # z spread
 
-            PD_ann = fp * fy * fz
+            PD_ann = fp * fy if self.dim == 2 else fp * fy * fz
 
         # Return sum of power densities weighted by fraction
         return self.frac_ann * PD_ann + self.frac_gauss * PD_gauss

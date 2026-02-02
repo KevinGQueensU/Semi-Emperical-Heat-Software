@@ -23,7 +23,7 @@ Lz_Pb = 15e-3
 Ly = Ly_Pb
 Lz = Lz_Pb
 dx = 1e-6
-dy = 5e-4
+dy = 2e-4
 
 
 def C_Pb(T):
@@ -68,7 +68,7 @@ def k_Pb(T):
     k_combined = (cond1 * val1) + (cond2 * val2) + (cond3 * val3)
 
     # Final safety floor (k should never be 0 or negative)
-    return nx.maximum(k_combined, 1.0)
+    return nx.maximum(k_combined* 1e2, 1.0)
 
 # Define lead
 Z_Pb = 82
@@ -125,7 +125,7 @@ olivine = Medium(rho_olivine, C_olivine, k_olivine,
 # Actual Sim
 mediums = [lead, olivine]
 
-BC = BoundaryConditions(['Fixed', 'Fixed', 'BBR', 'BBR'],
+BC = BoundaryConditions(['BBR', 'BBR', 'BBR', 'BBR'],
                         273, 298, eps=0.9)
-ts, Ts = sim.heateq_solid_2d(beam, mediums, BC, Ly,10000, dt =  1e-1, alpha = 0.1, beta = 0.1,
+ts, Ts = sim.heateq_solid_2d(beam, mediums, BC, Ly,10000, dt =  1e-6, alpha = 0, beta = 0,
                              dx=dx, dy=dy, view=True, dt_ramp=2, dT_target = 500, x_units='µm')
