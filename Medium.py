@@ -211,9 +211,8 @@ class Medium:
                  C: float | Callable[[float], float],    # Heat Capacity [J/(kg*K)]
                  k: float | Callable[[float], float],    # Heat conductivity [W/(m*K)]
                  atoms: np.ndarray[np.object_] | list[Atom] | tuple[Atom] | Atom,  # Constituent atoms that make up the material
-                 Lx: float, Ly: float, Lz: float, # Dimensions of medium
                  dEdx_filename: str,    # SRIM file for stopping powers
-                 x0: float = 0,         # Starting location of Medium
+                 Lx: float = 0, Ly: float = 0, Lz: float = 0,  # Dimensions of medium (optional)
                  name: str = None       # Medium name for plotting purposes
                  ) -> None:
 
@@ -230,13 +229,15 @@ class Medium:
         self.Lx = Lx
         self.Ly = Ly
         self.Lz = Lz
-        self.x0 = x0
         self.filename = dEdx_filename
         self.name = name
 
         self.A = Ly * Lz            # (y, z) cross-sectional area [m^2]
         self.P = 2*(Ly + Lz)        # (y, z) perimeter [m]
-        self.r = 2*self.A/self.P    # (y, z) cross-sectional radius m
+        if self.P != 0:
+            self.r = 2*self.A/self.P    # (y, z) cross-sectional radius m
+        else:
+            self.r = 0
         self.LBD = 0                # fitting parameter, initially set to 0
 
         self.Es, self.Se_elec, self.Se_nucl = read_SRIM_ev_atom_m2(dEdx_filename)
@@ -254,7 +255,7 @@ class Medium:
         M_bar = sum(a.f * a.A for a in self.atoms)
 
         # Calculate total number density N
-        self.N_tot = (self.rho*1e-3 / M_bar) * scipy.constants.N_A * 1e6   # atoms/m^3
+        self.N_tot = (self.rho*1e-3 / M_bar) * scipy.constants.N_A * 1e6  # atoms/m^3
 
         # Store number density fraction for each atom in a dict.
         self.Nd = {a: a.f * self.N_tot for a in self.atoms} # atoms/m^3

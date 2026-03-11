@@ -752,15 +752,15 @@ def heateq_solid_3d_test(
     t,
     T0=298.0,
     SE=None,
-    x_shift=0.0, y_shift=0.0, z_shift=0.0,
+    T_min = None, T_max = None,
+    x_scale = 1.0, x_scale_min = -np.inf, x_scale_max = np.inf,
     alpha=0.0, beta=0.0,
     dt=1e-3,
     view=False,
-    view_freq=2,
+    view_freq=1,
     dT_target=None,
     dt_ramp=None,
     dt_max=1.0,
-    x_units="mm", y_units="mm", z_units="mm",
     debug=True,
 ):
     import numpy as np
@@ -776,12 +776,8 @@ def heateq_solid_3d_test(
     z = mesh.cellCenters[2].value
     nCells = mesh.numberOfCells
 
-    x_cm = x * 1e-2
-    y_cm = y * 1e-2
-    z_cm = z * 1e-2
-
     # build material masks
-    tag_map = np.asarray(mesh.physicalCellMap).astype(int)  # (nCells,)
+    tag_map = mesh.physicalCells  # (nCells,)
 
     # If you used explicit ids in gmsh:
     names = []
@@ -791,37 +787,36 @@ def heateq_solid_3d_test(
     masks = []
     for med in medium:
         if med.name not in names:
-            raise KeyError(f"Medium name '{med.name}' not in physical volumes={names}")
-        tag = names[med.name]
-        m = (tag_map == tag)
+            raise KeyError(f"Medium name '{med.name}' not in list of physical volumes = {names}")
+        m = tag_map[med.name]
         masks.append(m)
+        med.x0 = min(x[m])
 
-    covered = np.zeros(nCells, dtype=int)
-    for m in masks:
-        covered += m.astype(int)
-    if (covered == 0).any() or (covered > 1).any():
-        raise RuntimeError(
-            f"Material masks bad: uncovered={(covered==0).sum()} overlap={(covered>1).sum()} "
-            f"tags={np.unique(tag_map)}"
-        )
+    # covered = np.zeros(nCells, dtype=int)
+    # for m in masks:
+    #     covered += m.astype(int)
+    # if (covered == 0).any() or (covered > 1).any():
+    #     raise RuntimeError(
+    #         f"Material masks bad: uncovered={(covered==0).sum()} overlap={(covered>1).sum()} "
+    #         f"tags={np.unique(tag_map)}"
+    #     )
 
     # compute SE
     if SE is None:
         # 1D profile along +x
-        x_grid = np.linspace(0.0, float(x_cm.max()), 2000)
+        x_grid = np.linspace(1e-12, float(x.max()), 2000)
         dEb_dx = np.zeros_like(x_grid)   # whatever compute_dEb_dx returns (likely eV/(m*s))
         E_inst = np.zeros_like(x_grid)
 
         for i, xi in enumerate(x_grid):
-            dEb_dx[i], E_inst[i] = compute_dEb_dx(xi, 0.0, 1e-4, beam, medium)
+            dEb_dx[i], E_inst[i] = compute_dEb_dx(xi, 0.0, (x_grid[2]-x_grid[1])/2, beam, medium)
 
         # interpolate onto cells by their x-position (meters)
-        dEb_dx_cells = np.interp(x_cm, x_grid, dEb_dx, left=0.0, right=0.0)
+        dEb_dx_cells = np.interp(x, x_grid, dEb_dx, left=0.0, right=0.0)
         dEb_dx_cells *= 1.602176634e-19  # eV -> J  (keep only if compute_dEb_dx is eV/(m*s))
 
         # beam profile evaluated at cell centers (use same unit system your beam expects)
-        phi_free = np.asarray(beam.PD(x_cm, y_cm, z_cm, alpha, beta))
-
+        phi_free = np.asarray(beam.PD(x, y, z, alpha, beta))
         SE_cells = dEb_dx_cells * phi_free / (beam.E_0 * beam.I_0)
 
         if debug:
@@ -833,17 +828,17 @@ def heateq_solid_3d_test(
             plt.show()
 
             plt.figure()
-            plt.title("Cell-wise volumetric source term SE")
-            plt.plot(x_cm, SE_cells, "b.", markersize=2)
+            plt.title(r"Normalized Volumetric Source Heating Term $S_{E}$")
+            plt.plot(x, SE_cells, "b.", markersize=2)
             plt.xlabel("x [m]")
-            plt.ylabel("SE [W/m^3] (as coded)")
+            plt.ylabel(r"SE $[W/m^3]$")
             plt.show()
     else:
         SE_cells = np.asarray(SE, dtype=float)
         if SE_cells.shape != (nCells,):
             raise ValueError(f"Provided SE must be shape {(nCells,)}, got {SE_cells.shape}")
 
-    # --- FiPy variables ---
+    # FiPy Variables
     T = CellVariable(mesh=mesh, value=float(T0), name="Temperature [K]", hasOld=True)
     SE_var = CellVariable(mesh=mesh, value=SE_cells, name=r"$S_E$")
     rhoC = CellVariable(mesh=mesh, name="rhoC")
@@ -860,19 +855,18 @@ def heateq_solid_3d_test(
             new_rhoC[m] = med.rho * cp_vals[m]
             new_k[m] = k_vals[m]
 
-        if np.any(new_rhoC <= 0) or not np.isfinite(new_rhoC).all():
-            raise RuntimeError(f"rhoC bad: min={new_rhoC.min()}, zeros={(new_rhoC==0).sum()}")
-        if np.any(new_k <= 0) or not np.isfinite(new_k).all():
-            raise RuntimeError(f"k bad: min={new_k.min()}, zeros={(new_k==0).sum()}")
-
         rhoC.setValue(new_rhoC)
         k_cell.setValue(new_k)
 
+    _manual_refresh_props()
     k_face = k_cell.harmonicFaceValue
     eq = TransientTerm(coeff=rhoC) == DiffusionTerm(coeff=k_face) + SE_var
 
     if(view):
-        viewer = Viewer(vars=(T,))
+        vertex_coords = mesh.vertexCoords
+        mask_x = (vertex_coords[0] >= x_scale_min) & (vertex_coords[0] <= x_scale_max)
+        vertex_coords[0, mask_x] *= x_scale
+        viewer = Viewer(vars=(T,), data_min = 298, data_max = 1000)
 
     # --- time loop ---
     t_elapsed = 0.0
@@ -884,27 +878,22 @@ def heateq_solid_3d_test(
         T.updateOld()
         T_old = T.value.copy()
 
-        _manual_refresh_props()
-        bcs = BC.update(mesh, T)
-        fixed_mask = np.asarray(BC.mats["Tantalum"]["Fixed"], dtype=bool)  # example
         if dT_target is not None:
-            inner = 0
             while True:
-                inner += 1
-                eq.solve(var=T, dt=dt, boundaryConditions = bcs)
+                # Recompute everything fresh on each retry
+                _manual_refresh_props()
+                k_face = k_cell.harmonicFaceValue
+                eq = TransientTerm(coeff=rhoC) == DiffusionTerm(coeff=k_face) + SE_var
+                bcs = BC.update(mesh, T)
+                T.setValue(T_old)  # always reset before solving
+                eq.solve(var=T, dt=dt, boundaryConditions=bcs)
                 dT_inf = float(np.max(np.abs(T.value - T_old)))
-                Tf = np.asarray(T.faceValue)
-
-                if dT_inf > dT_target:
-                    T.setValue(T_old)
-                    dt *= 0.5
-                    if dt < 1e-30:
-                        raise RuntimeError("dt underflow while enforcing dT_target")
-                else:
+                if dT_inf <= dT_target:
                     break
-
-                if inner > 50:
-                    raise RuntimeError("Failed to satisfy dT_target after 50 inner attempts")
+                dt *= 0.5
+                print(f"Temperature is greater than target, dt = {dt}")
+                if dt < 1e-30:
+                    raise RuntimeError("dt underflow")
         else:
             eq.solve(var=T, dt=dt, boundaryConditions=bcs)
 

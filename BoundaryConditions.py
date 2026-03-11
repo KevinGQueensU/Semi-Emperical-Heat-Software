@@ -1,13 +1,14 @@
 import fipy
 import numpy as np
 import scipy.constants as const
+import scipy.interpolate
 from fipy import FaceVariable, CellVariable, Gmsh3D, Grid2D, Grid3D, TransientTerm, DiffusionTerm, Viewer, meshes
 from fipy.meshes.uniformGrid import UniformGrid
 from fipy.meshes.uniformGrid3D import UniformGrid3D
 from fipy.boundaryConditions import FixedValue, FixedFlux
 from fipy.tools import numerix as nx
 
-TYPES = ('None', 'Fixed', 'BBR', 'Interface')  # BBR = Blackbody radiation
+TYPES = ('None', 'Fixed', 'BBR')  # BBR = Blackbody radiation
 class BoundaryConditions:
 
 
@@ -118,7 +119,7 @@ class BoundaryConditionsGmsh:
             mesh: Gmsh3D,
             T0=None,          # float | array-like | None
             T_amb=None,       # float | None
-            eps=1,            # float | array-like
+            eps: float | np.ndarray[float] =1,            # float | array-like
                 ) -> None:
         materials = {}
         T0 = np.array(T0).astype(np.float64)
@@ -167,12 +168,11 @@ class BoundaryConditionsGmsh:
         bbr_faces = None  # Only apply flux boundary condition to faces with BBR
         for mat in self.mats:
             for bnd in self.mats[mat]:
-                if(bnd ==  'Interface'):
+                if(bnd ==  'None' or bnd == 'Interface'):
                     continue
                 faces = FaceVariable(mesh=mesh, value=self.mats[mat][bnd])
                 if (bnd == 'Fixed'):  # Append individually for Dirhlect
-                    T.constrain(where = self.mats[mat][bnd], value = self.T0s[j_fixed])
-
+                    bcs.append(FixedValue(faces=faces, value=self.T0s[j_fixed]))
                 elif (bnd == 'BBR'):  # Apply values to each face and then append afterwards for BBR
                     Tface = T.faceValue
                     h = 4.0 * float(self.eps[j_bbr]) * const.Stefan_Boltzmann * (nx.maximum(Tface, 0.0) ** 3.0)
@@ -181,53 +181,109 @@ class BoundaryConditionsGmsh:
                     # Set qn only on selected faces
                     val.setValue(qn, where=self.mats[mat][bnd])
                     bbr_faces = faces if bbr_faces is None else (bbr_faces | faces)
+                else:
+                    print(f"Boundary not recongized : {bnd}")
             j_fixed += 1
             j_bbr += 1
-
         if(self.T_amb != None):
             bcs.append(FixedFlux(faces=bbr_faces, value=val))
 
         self.last_bcs = bcs
         return bcs
-
+#%%
 if True:
+    #%%
     import numpy as np
-
     from Beam import Beam
     from Medium import Atom, Medium
     from fipy.tools import numerix as nx
     import scipy as sp
 
-    mesh = Gmsh3D("3D_Holder_Backup.geo")
-    BC = BoundaryConditionsGmsh(mesh, T0 = [1000, 500, 5000], T_amb = 200, eps = [1, 1, 1])
+    gmsh_mesh = Gmsh3D("Holder_V3.geo")
+    mesh = gmsh_mesh * 1e-2
 
-    I_0 = 2.5e17  # [s^-1] 0.5 muAmps
+    # force physical masks to be numpy bool arrays (no mesh reference inside)
+    mesh.physicalCells = {k: np.asarray(v, dtype=bool) for k, v in gmsh_mesh.physicalCells.items()}
+    mesh.physicalFaces = {k: np.asarray(v, dtype=bool) for k, v in gmsh_mesh.physicalFaces.items()}
+
+    # also detach exteriorFaces
+    mesh.exteriorFaces = np.asarray(gmsh_mesh.exteriorFaces, dtype=bool)
+
+    BC = BoundaryConditionsGmsh(mesh, T0 = [298, 298, 298], T_amb = 298, eps = [0.2, 0.2, 0.2])
+
+    I_0 = 3.12e20  # [s^-1] 1 muAmps
     E_0 = 4e6  # [MeV]
-    r = 1e-2  # m
-    sig_ga_y0 = r
-    sig_ga_z0 = r
+    L = 1e-2
     Z = 1
-    beam = Beam(E_0, I_0, Z, L = 0.5e-2, W = 0.5e-2, sig_ga_y0=sig_ga_y0, sig_ga_z0=sig_ga_z0, dim=3, type = 'Rectangular')
-
-    Lx_Al = 50e-6
-    Ly_Al = 2e-2
-    Lz_Al = Ly_Al
-
-    Lx_Ol = 50e-6
-    Ly_Ol = Ly_Al
-    Lz_Ol = Lz_Al
-
-    Ly = Ly_Al
-    Lz = Lz_Al
-    dx = 1e-6
-    dy = 0.5e-3
-    dz = dy
+    beam = Beam(E_0, I_0, Z, L = L, W = L, dim=3, type = 'Rectangular')
 
 
+    def C_Ta(T):
+        M_Ta = 180.95e-3  # kg/mol
+
+        T = np.asarray(T, dtype=float)
+        T_safe = np.clip(T, 53.0, 3258.0)
+
+        m1 = T_safe <= 298.0
+        m2 = (T_safe > 298.0) & (T_safe <= 1300.0)
+        m3 = T_safe > 1300.0
+
+        Ts_low = np.array([53, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110,
+                           115, 120, 125, 130, 135, 140, 145, 150, 155, 160, 165, 170, 175,
+                           180, 185, 190, 195, 200, 205, 210, 215, 220, 225, 230, 235, 240,
+                           245, 250, 255, 260, 265, 270, 275, 280, 285, 290, 295], dtype=float)
+
+        Cp_low = np.array([2.81, 2.95, 3.26, 3.54, 3.80, 4.03, 4.22, 4.40, 4.55, 4.68, 4.78,
+                           4.87, 4.97, 5.06, 5.14, 5.21, 5.27, 5.33, 5.39, 5.44, 5.48, 5.52, 5.55,
+                           5.58, 5.62, 5.65, 5.68, 5.70, 5.73, 5.76, 5.78, 5.80, 5.82, 5.84, 5.86, 5.88,
+                           5.89, 5.91, 5.92, 5.94, 5.95, 5.96, 5.98, 5.99, 6.01, 6.02, 6.03, 6.03, 6.04, 6.04],
+                          dtype=float)
+
+        Cp_low_J_per_molK = Cp_low * 4.184
+        f_low = scipy.interpolate.PchipInterpolator(Ts_low, Cp_low_J_per_molK)
+        val1 = f_low(T_safe) / M_Ta  # -> J/(kg K)
+
+
+        A, B, C, D, E = 20.69482, 17.29992, -15.68987, 5.608694, 0.061581
+        val2 = (A + B * T_safe + C * T_safe ** 2 + D * T_safe ** 3 + E / (T_safe ** 2)) / M_Ta
+
+
+        A, B, C, D, E = -43.87133, 73.02084, -27.40796, 4.004682, 26.30414
+        val3 = (A + B * T_safe + C * T_safe ** 2 + D * T_safe ** 3 + E / (T_safe ** 2)) / M_Ta
+
+        Cp = m1*val1 + m2*val2 + m3*val3
+        return nx.maximum(1.0, Cp)
+
+    # https://srd.nist.gov/jpcrdreprint/1.3253100.pdf
+    def k_Ta(T):
+        T_safe = nx.clip(T, 53, 1800)
+        cond1 = (T_safe < 298)
+        cond2 = (T_safe >= 298)
+
+        Ts_low = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+                           18, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100,
+                           123.2, 150, 173.2, 200, 223.2, 250, 273.2, 298.2])
+        k_low = np.array([0, 0.115, 0.230, 0.344, 0.458, 0.569, 0.678, 0.784, 0.884, 0.979, 1.07, 1.15, 1.22,
+                          1.28, 1.33, 1.37, 1.140, 1.43, 1.42, 1.30, 1.15, 0.99, 0.87, 0.78, 0.72, 0.651, 0.616,
+                          0.603, 0.596, 0.592, 0.586, 0.580, 0.578, 0.575, 0.574, 0.574, 0.574, 0.575])
+        k_low *= 1e2 # convert to W/m*K
+        f_low = sp.interpolate.PchipInterpolator(Ts_low, k_low)
+        val1 = f_low(T_safe)
+        val2 = 57.5 + 0.00025 * (T - 273.15)
+
+        return  cond1 * val1 + cond2 * val2
+
+    Z_Ta = 73
+    A_Ta = 181
+    Ta = Atom('Ta', Z_Ta, A_Ta, 1)
+    rho_Ta = 16690
+
+    tantalum = Medium(rho_Ta, C_Ta, k_Ta, Ta,
+                      "Ta//Hydrogen in Tantalum.txt", name='Tantalum')
     def C_Al(T):
         M_Al = 0.02698  # kg/mol
         # Prevent T from going to extreme values that break polynomials
-        T_safe = nx.clip(T, 0, 2200)
+        T_safe = nx.clip(T, 1, 2200)
 
         Ts_low = np.array([1, 2, 3, 4, 6, 8, 10, 15, 20, 25,
                            30, 35, 40, 50, 60, 70, 80, 90, 100, 120, 140, 160,
@@ -299,20 +355,15 @@ if True:
         # Final safety floor (k should never be 0 or negative)
         return nx.maximum(k_combined, 1.0)
 
-
     # Define aluminum
     Z_Al = 13
     A_Al = 27  # g/mol
     Al = Atom('Al', Z_Al, A_Al, 1)
     rho_Al = 2700  # kg/m^3
-    x0_Al = 0
 
     aluminum = Medium(rho_Al, C_Al, k_Al,
-                      Al, Lx_Al, Ly_Al, Lz_Al,
+                      Al,
                       "Al//Hydrogen in Aluminum.txt", name='Aluminum')
-    tantalum = Medium(rho_Al, C_Al, k_Al,
-                      Al, Lx_Al, Ly_Al, Lz_Al,
-                      "Al//Hydrogen in Aluminum.txt", name='Tantalum')
 
     def C_olivine(T):
         M = 0.14069  # kg/mol
@@ -353,18 +404,21 @@ if True:
 
     olivine = Medium(rho_olivine, C_olivine, k_olivine,
                      [Mg, Fe, Si, O],
-                     Lx_Ol, Ly_Ol, Lz_Ol,
                      "Olivine//Hydrogen in Olivine.txt",
                      name='Olivine')
+    #%%
     if __name__ == "__main__":
         from Simulation import heateq_solid_3d_test
 
         mediums = [tantalum, olivine, aluminum]
+        print(f"N_tot olivine: {olivine.N_tot:.3e}")  # should be ~7e28 atoms/m³
+        print(f"N_tot aluminum: {aluminum.N_tot:.3e}")  # should be ~6e28 atoms/m³
+        print(f"Se at 5MeV: {olivine.get_Se_ev_m(5e6):.3e} eV/m")  # should be ~1e9 eV/m
         ts, Ts = heateq_solid_3d_test(
             beam, mediums, mesh, BC,
             10000, T0=298.0,
+            x_scale = 1e3, x_scale_min = 0,
             dt=1e-6, alpha=0, beta=0,
-            view=True, dt_ramp=2, dT_target=500,
-            x_units='µm', y_units='cm', z_units='cm'
+            view=True, dt_ramp=2, dT_target=5000,
         )
         print("hello")
