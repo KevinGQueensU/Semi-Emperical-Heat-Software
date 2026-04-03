@@ -25,7 +25,7 @@ a[] = Extrude {0.0001, 0,0} { Surface{1}; Layers{5}; Recombine; };
 // Aluminum slab
 b[] = Extrude {0.001,0,0} { Surface{a[0]}; Layers{5}; Recombine; };
 
-// force structured volumes (again: indices can vary; see note below)
+//+
 Transfinite Volume{a[1]}; Recombine Volume{a[1]};
 Transfinite Volume{b[1]}; Recombine Volume{b[1]};
 
