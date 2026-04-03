@@ -1,5 +1,7 @@
 # Introduction
-This package allows for simulation of particle beam irradiation heating in solid materials, with support for Gmsh custom grids. This was created for an undergraduate thesis at Queen's University in the Engineering Physics department. Information about the software and theory, see [Irradiation_Paleo_Thesis.pdf](/Irradiation_Paleo_Thesis.pdff)
+This package allows for simulation of particle beam irradiation heating in solid materials, with support for Gmsh custom grids. This was created for an undergraduate thesis at Queen's University in the Engineering Physics department. 
+
+For information about the software and theory, see [Irradiation_Paleo_Thesis.pdf](/Irradiation_Paleo_Thesis.pdf) and the documentation
 
 # Usage
 
