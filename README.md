@@ -8,7 +8,7 @@ For information about the software and theory, see [Irradiation_Paleo_Thesis.pdf
 
 Install required packages with `pip install -r requirements.txt`
 
-To get mayavi working, try doing the following steps: \
+To get mayavi working, try doing the following steps: 
 1) Create a virtual environment in Python 3.11 (I used Conda) 
 2) Run pip install numpy==1.26.4 vtk==9.3.1 
 3) Run pip install PyQt5 
