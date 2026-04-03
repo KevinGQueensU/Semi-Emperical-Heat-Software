@@ -1,0 +1,18 @@
+apptools==5.3.1
+decorator==5.2.1
+envisage==7.0.4
+fipy==4.0.2
+ipython==8.12.3
+matplotlib==3.10.8
+Pillow==12.1.1
+puremagic==1.30
+PyQt5==5.15.11
+pyqt5_sip==12.18.0
+scipy==1.17.1
+setuptools==80.10.2
+traits==7.1.0
+traitsui==8.0.0
+numpy==1.26.4
+vtk==9.3.0
+# MAY BREAK, READ README
+#mayavi==4.8.3

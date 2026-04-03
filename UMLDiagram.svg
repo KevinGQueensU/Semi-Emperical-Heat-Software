@@ -1,0 +1,219 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1650 1200" font-family="Calibri, 'Segoe UI', sans-serif">
+  <style>
+    .title { font-size: 18px; font-weight: bold; fill: #000; }
+    .section { font-size: 16px; font-weight: bold; fill: #000; }
+    .attr { font-size: 15.5px; fill: #000; }
+    .method { font-size: 15.5px; fill: #000; }
+    .box { fill: #fff; stroke: #000; stroke-width: 1.4; }
+    .header { fill: #ddd; stroke: #000; stroke-width: 1.4; }
+    .divider { stroke: #000; stroke-width: 0.8; }
+    .relation { stroke: #000; stroke-width: 1.3; fill: none; }
+    .arrow { fill: #000; stroke: #000; stroke-width: 1.3; }
+    .diamond { fill: #fff; stroke: #000; stroke-width: 1.3; }
+    .dashed { stroke-dasharray: 7,4; }
+    .diagram-title { font-size: 22px; font-weight: bold; fill: #000; }
+    .note { font-size: 14px; fill: #000; font-style: italic; }
+  </style>
+
+  <text x="825" y="26" text-anchor="middle" class="diagram-title">Semi-Empirical Heat Software — UML Class Diagram</text>
+
+  <!-- ============ LEFT COLUMN (10 → 490) ============ -->
+
+  <!-- BEAM -->
+  <rect x="10" y="45" width="480" height="355" class="box" rx="3"/>
+  <rect x="10" y="45" width="480" height="28" class="header" rx="3"/>
+  <text x="250" y="65" text-anchor="middle" class="title">Beam</text>
+  <line x1="10" y1="73" x2="490" y2="73" class="divider"/>
+
+  <text x="22" y="97" class="section">Attributes</text>
+  <text x="22" y="119" class="attr">- TYPES: tuple[str]</text>
+  <text x="22" y="141" class="attr">+ type, E_0, I_0, P_0: float</text>
+  <text x="22" y="163" class="attr">+ A, Z, dim: int;  Vm: float</text>
+  <text x="22" y="185" class="attr">+ L, W, r: float</text>
+  <text x="22" y="207" class="attr">+ frac_gauss, frac_ann: float</text>
+  <text x="22" y="229" class="attr">+ sig_ga_y0/z0, sig_an_y0/z0: float</text>
+  <text x="22" y="251" class="attr">+ mu_y0, mu_z0: float</text>
+
+  <line x1="10" y1="265" x2="490" y2="265" class="divider"/>
+  <text x="22" y="289" class="section">Methods</text>
+  <text x="22" y="313" class="method">+ __init__(E_0, I_0, Z, dim, ...)</text>
+  <text x="22" y="335" class="method">+ PD(x, y, z, alpha, beta) → float</text>
+
+  <text x="22" y="363" class="note">Auto-detects: Rect | Circ | Gauss | Ann | Both</text>
+
+  <!-- ATOM -->
+  <rect x="10" y="430" width="480" height="250" class="box" rx="3"/>
+  <rect x="10" y="430" width="480" height="28" class="header" rx="3"/>
+  <text x="250" y="450" text-anchor="middle" class="title">Atom</text>
+  <line x1="10" y1="458" x2="490" y2="458" class="divider"/>
+
+  <text x="22" y="482" class="section">Attributes</text>
+  <text x="22" y="504" class="attr">+ name: str, Z: int, A: float, f: float</text>
+  <text x="22" y="526" class="attr">+ sig_file: str, Es/sig_bs: ndarray</text>
+  <text x="22" y="548" class="attr">+ sig_interp: PchipInterpolator</text>
+
+  <line x1="10" y1="562" x2="490" y2="562" class="divider"/>
+  <text x="22" y="586" class="section">Methods</text>
+  <text x="22" y="608" class="method">+ __init__(name, Z, A, f, sig_file=None)</text>
+  <text x="22" y="630" class="method">+ conv_sig(f), conv_E(f), set_sig(...)</text>
+  <text x="22" y="652" class="method">+ get_sig(E) → float</text>
+
+  <!-- MEDIUM -->
+  <rect x="10" y="720" width="480" height="380" class="box" rx="3"/>
+  <rect x="10" y="720" width="480" height="28" class="header" rx="3"/>
+  <text x="250" y="740" text-anchor="middle" class="title">Medium</text>
+  <line x1="10" y1="748" x2="490" y2="748" class="divider"/>
+
+  <text x="22" y="772" class="section">Attributes</text>
+  <text x="22" y="794" class="attr">+ rho: float, name: str, x0: float</text>
+  <text x="22" y="816" class="attr">+ C, k: float | Callable(T)</text>
+  <text x="22" y="838" class="attr">+ atoms: list[Atom], Lx/Ly/Lz: float</text>
+  <text x="22" y="860" class="attr">+ Es, Se, Se_elec, Se_nucl: ndarray</text>
+  <text x="22" y="882" class="attr">+ dEdx_interp: PchipInterpolator</text>
+  <text x="22" y="904" class="attr">+ N_tot: float, Nd: dict{Atom: float}</text>
+
+  <line x1="10" y1="920" x2="490" y2="920" class="divider"/>
+  <text x="22" y="944" class="section">Methods</text>
+  <text x="22" y="966" class="method">+ __init__(rho, C, k, atoms, dEdx_file, ...)</text>
+  <text x="22" y="988" class="method">- _compute_number_densities()</text>
+  <text x="22" y="1010" class="method">+ get_Se_ev_m(E), get_dEdx(E) → float</text>
+  <text x="22" y="1032" class="method">+ get_dIdx(E, I), compute_sig(E) → float</text>
+  <text x="22" y="1054" class="method">+ get_C(T), get_k(T) → float</text>
+  <text x="22" y="1076" class="method">+ conv_Se(f), conv_E(f), set_LBD(E)</text>
+
+  <!-- ============ CENTER: SIMULATION (510 → 1100) ============ -->
+
+  <rect x="510" y="45" width="590" height="960" class="box" rx="3"/>
+  <rect x="510" y="45" width="590" height="28" class="header" rx="3"/>
+  <text x="805" y="65" text-anchor="middle" class="title">«module» Simulation</text>
+  <line x1="510" y1="73" x2="1100" y2="73" class="divider"/>
+
+  <text x="522" y="97" class="section">Helper Functions</text>
+  <text x="522" y="121" class="method">+ scale_viewer_axes_2D(viewer, ...) → Axes</text>
+  <text x="522" y="145" class="method">+ scale_axes(ax, plane, units, ...) → Axes</text>
+  <text x="522" y="169" class="method">+ forceAspect(ax: Axes, aspect: float)</text>
+  <text x="522" y="193" class="method">+ region_index(x0s: list, x: float) → int</text>
+  <text x="522" y="217" class="method">+ compute_dEb_dx(x: float, x_ref: float,</text>
+  <text x="548" y="239" class="method">dx: float, beam: Beam, medium: list[Medium],</text>
+  <text x="548" y="261" class="method">E: float) → (float, float)</text>
+
+  <line x1="520" y1="277" x2="1090" y2="277" class="divider" stroke-dasharray="5,3"/>
+  <text x="522" y="301" class="section">Simulation Functions</text>
+
+  <text x="522" y="327" class="method" font-weight="bold">+ heateq_solid_2d(</text>
+  <text x="548" y="349" class="method">beam: Beam, medium: list[Medium],</text>
+  <text x="548" y="371" class="method">BC: BoundaryConditions,</text>
+  <text x="548" y="393" class="method">Ly: float, t: float, T0: float,</text>
+  <text x="548" y="415" class="method">SE: ndarray, x_shift: float, y_shift: float,</text>
+  <text x="548" y="437" class="method">alpha: float, dx: float, dy: float, dt: float,</text>
+  <text x="548" y="459" class="method">view: bool, view_freq: int, dT_target: float,</text>
+  <text x="548" y="481" class="method">dt_ramp: float, dt_max: float,</text>
+  <text x="548" y="503" class="method">x_units: str, y_units: str, debug: bool )</text>
+
+  <line x1="520" y1="519" x2="1090" y2="519" class="divider" stroke-dasharray="5,3"/>
+
+  <text x="522" y="545" class="method" font-weight="bold">+ heateq_solid_3d(</text>
+  <text x="548" y="567" class="method">beam: Beam, medium: list[Medium],</text>
+  <text x="548" y="589" class="method">BC: BoundaryConditions,</text>
+  <text x="548" y="611" class="method">Ly: float, Lz: float, t: float, T0: float,</text>
+  <text x="548" y="633" class="method">SE: ndarray, x/y/z_shift: float,</text>
+  <text x="548" y="655" class="method">alpha: float, beta: float,</text>
+  <text x="548" y="677" class="method">dx/dy/dz: float, dt: float,</text>
+  <text x="548" y="699" class="method">view: bool, view_freq: int, dT_target: float,</text>
+  <text x="548" y="721" class="method">dt_ramp: float, dt_max: float,</text>
+  <text x="548" y="743" class="method">x/y/z_units: str, T_min/T_max: float,</text>
+  <text x="548" y="765" class="method">min_sweeps: int, max_sweeps: int,</text>
+  <text x="548" y="787" class="method">rel_residual_target: float, omega: float,</text>
+  <text x="548" y="809" class="method">debug: bool ) → (list[float], list[float])</text>
+
+  <line x1="520" y1="825" x2="1090" y2="825" class="divider" stroke-dasharray="5,3"/>
+
+  <text x="522" y="851" class="method" font-weight="bold">+ heateq_solid_3d_gmsh(</text>
+  <text x="548" y="873" class="method">beam: Beam, medium: list[Medium],</text>
+  <text x="548" y="895" class="method">mesh: Gmsh3D, BC: BoundaryConditionsGmsh,</text>
+  <text x="548" y="917" class="method">t: float, T0: float, SE: ndarray, n_SE: int,</text>
+  <text x="548" y="939" class="method">T_min/T_max: float, x_scale: float,</text>
+  <text x="548" y="961" class="method">alpha/beta: float, dt: float, view: bool,</text>
+  <text x="548" y="983" class="method">dT_target/dt_ramp/dt_max: float,</text>
+  <text x="548" y="995" class="method" font-weight="bold">  ... ) → (list[float], list[float])</text>
+
+  <!-- ============ RIGHT COLUMN (1150 → 1640) ============ -->
+
+  <!-- BOUNDARY CONDITIONS -->
+  <rect x="1150" y="45" width="490" height="300" class="box" rx="3"/>
+  <rect x="1150" y="45" width="490" height="28" class="header" rx="3"/>
+  <text x="1395" y="65" text-anchor="middle" class="title">BoundaryConditions</text>
+  <line x1="1150" y1="73" x2="1640" y2="73" class="divider"/>
+
+  <text x="1162" y="97" class="section">Attributes</text>
+  <text x="1162" y="119" class="attr">- TYPES: ('None', 'Fixed', 'BBR')</text>
+  <text x="1162" y="141" class="attr">+ types: list[str]</text>
+  <text x="1162" y="163" class="attr">+ T0s: list[float], eps: list[float]</text>
+  <text x="1162" y="185" class="attr">+ T_amb: float</text>
+  <text x="1162" y="207" class="attr">+ n_BBR: int, n_fixed: int, n_none: int</text>
+  <text x="1162" y="229" class="attr">+ faces: list, last_bcs: list</text>
+
+  <line x1="1150" y1="243" x2="1640" y2="243" class="divider"/>
+  <text x="1162" y="267" class="section">Methods</text>
+  <text x="1162" y="291" class="method">+ __init__(mesh, types, T0, T_amb, eps)</text>
+  <text x="1162" y="315" class="method">+ set_masks(masks: list)</text>
+  <text x="1162" y="339" class="method">+ update(mesh, T) → list[FipyBC]</text>
+
+  <!-- BOUNDARY CONDITIONS GMSH -->
+  <rect x="1150" y="390" width="490" height="370" class="box" rx="3"/>
+  <rect x="1150" y="390" width="490" height="28" class="header" rx="3"/>
+  <text x="1395" y="410" text-anchor="middle" class="title">BoundaryConditionsGmsh</text>
+  <line x1="1150" y1="418" x2="1640" y2="418" class="divider"/>
+
+  <text x="1162" y="442" class="section">Attributes</text>
+  <text x="1162" y="464" class="attr">+ mats: dict{str: dict{str: FipyMask}}</text>
+  <text x="1162" y="486" class="attr">+ T0s: list[float], eps: list[float]</text>
+  <text x="1162" y="508" class="attr">+ h: list[float], R: list[float]</text>
+  <text x="1162" y="530" class="attr">+ T_amb: float</text>
+  <text x="1162" y="552" class="attr">+ _bbr_h_cell: CellVariable</text>
+  <text x="1162" y="574" class="attr">+ _bbr_src_cell: CellVariable</text>
+  <text x="1162" y="596" class="attr">+ bbr_implicit, bbr_explicit</text>
+  <text x="1162" y="618" class="attr">+ last_bcs: list</text>
+
+  <line x1="1150" y1="632" x2="1640" y2="632" class="divider"/>
+  <text x="1162" y="656" class="section">Methods</text>
+  <text x="1162" y="680" class="method">+ __init__(mesh, T0, T_amb, eps, h, R)</text>
+  <text x="1162" y="704" class="method">+ init_implicit_bbr(mesh: Gmsh3D)</text>
+  <text x="1162" y="728" class="method">+ update(mesh, T) → list[FipyBC]</text>
+
+  <text x="1162" y="755" class="note">Surface types from .geo physical names:</text>
+
+  <!-- ============ RELATIONSHIPS ============ -->
+
+  <!-- Atom → Medium (composition diamond) -->
+  <line x1="250" y1="680" x2="250" y2="720" class="relation"/>
+  <polygon points="242,720 250,706 258,720" class="diamond"/>
+  <text x="262" y="708" class="attr">1..*</text>
+  <text x="195" y="708" class="attr">atoms</text>
+
+  <!-- Beam ↔ Medium (bidirectional) -->
+  <line x1="250" y1="400" x2="250" y2="430" class="relation dashed"/>
+  <polygon points="244,428 250,436 256,428" class="arrow"/>
+  <polygon points="244,402 250,394 256,402" class="arrow"/>
+
+  <!-- Beam → Simulation -->
+  <line x1="490" y1="220" x2="510" y2="220" class="relation dashed"/>
+  <polygon points="505,215 513,220 505,225" class="arrow"/>
+
+  <!-- Medium → Simulation -->
+  <line x1="490" y1="900" x2="500" y2="900" class="relation dashed"/>
+  <line x1="500" y1="900" x2="500" y2="750" class="relation dashed"/>
+  <line x1="500" y1="750" x2="510" y2="750" class="relation dashed"/>
+  <polygon points="505,745 513,750 505,755" class="arrow"/>
+
+  <!-- BC → Simulation -->
+  <line x1="1150" y1="220" x2="1100" y2="220" class="relation dashed"/>
+  <polygon points="1107,215 1099,220 1107,225" class="arrow"/>
+
+  <!-- BCGmsh → Simulation -->
+  <line x1="1150" y1="600" x2="1110" y2="600" class="relation dashed"/>
+  <line x1="1110" y1="600" x2="1110" y2="750" class="relation dashed"/>
+  <line x1="1110" y1="750" x2="1100" y2="750" class="relation dashed"/>
+  <polygon points="1107,745 1099,750 1107,755" class="arrow"/>
+
+</svg>
