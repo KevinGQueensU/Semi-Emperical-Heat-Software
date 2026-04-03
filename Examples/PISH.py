@@ -85,7 +85,7 @@ Ta = Atom('Ta', Z_Ta, A_Ta, 1)
 rho_Ta = 16690
 
 tantalum = Medium(rho_Ta, C_Ta, k_Ta, Ta,
-                  "SRIMTables//H in Ta.txt", name='Tantalum')
+                  "..//SRIMTables//H in Ta.txt", name='Tantalum')
 def C_Al(T):
     M_Al = 0.02698  # kg/mol
     # Prevent T from going to extreme values that break polynomials
@@ -159,6 +159,7 @@ def k_Al(T):
     val2 = f_liq(T_safe)
 
     k_combined = (cond1 * val1 + cond2 * val2) * 1e2
+    
     # Final safety floor (k should never be 0 or negative)
     return nx.maximum(k_combined, 1e-6)
 
@@ -170,17 +171,12 @@ rho_Al = 2700  # kg/m^3
 
 aluminum = Medium(rho_Al, C_Al, k_Al,
                   Al,
-                  "SRIMTables//H in Al.txt", name='Aluminum')
+                  "..//SRIMTables//H in Al.txt", name='Aluminum')
 
-
+# Forsterite high-T -> Gillet et al. (1991)
+# Forsterite low-T -> Robie, Hemingway & Takei (1982)
+# Fayalite high-T -> Dachs et al. (2007)
 def C_olivine(T):
-    """"
-    Sources:
-      Forsterite high-T: Gillet et al. (1991), J. Geophys. Res., 96(B7), 11831-11838
-      Forsterite low-T:  Robie, Hemingway & Takei (1982), Am. Mineral., 67, 470-482
-      Fayalite high-T:   Dachs et al. (2007), J. Chem. Thermodyn., 39, 906-933
-      Mixing rule:       Linear in mole fractions, valid >300K
-    """
     # Molar masses [kg/mol]
     M_Fo = 0.14069  # Mg2SiO4
     M_Fa = 0.20378  # Fe2SiO4
@@ -195,8 +191,7 @@ def C_olivine(T):
     T_safe = nx.clip(T, 200.0, 2000.0)
 
 
-    # Low-T: Robie et al. (1982), tabulated 5-380 K, anchored at 298 K = 118.6 J/mol/K
-    # Smooth polynomial fit to Robie (1982) data for 200-700K:
+    # Low-T: Robie et al. (1982), valid 5-380 K
     Cp_Fo_lowT = (118.6
                   + 0.02489 * (T_safe - 298.0)
                   - 1.037e-5 * (T_safe - 298.0) ** 2)
@@ -224,7 +219,7 @@ def C_olivine(T):
     # Convert to J/(kg·K)
     return nx.maximum(Cp_mix / M, 1.0)
 
-
+# ummmmmmmmmmmmmmm its somewhere in my thesis citations
 def k_olivine(T, Tmin=160, Tmax=2000.0):
     Fo = 0.2533 / (0.2533 + 0.1457)
 
@@ -256,7 +251,7 @@ O = Atom('O', Z_O, A_O, 0.4177)
 
 olivine = Medium(rho_olivine, C_olivine, k_olivine,
                  [Mg, Fe, Si, O],
-                 "SRIMTables//H in Olivine.txt",
+                 "..//SRIMTables//H in Olivine.txt",
                  name='Olivine')
 
 mediums = [tantalum, olivine, aluminum]
